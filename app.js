@@ -237,6 +237,48 @@ const streets = () => memo('streets', () => {
 });
 const streetIdx = () => memo('stidx', () => new Map(streets().map((s) => [s.sk, s])));
 const streetOf = (sk) => streetIdx().get(sk);
+/** Relie chaque tracé de route du plan à une rue de la base d'adresses, pour pouvoir
+    toucher une rue sur la carte. Le nom seul ne suffit pas (« Rue de Seppois » existe dans
+    4 communes) : on retient la rue dont les maisons sont les plus proches du tracé. */
+const streetRoads = () => memo('roads', () => {
+  const byName = new Map(), byCore = new Map();
+  const push = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+  for (const st of streets()) { push(byName, norm(st.name), st); push(byCore, sortKey(st.name), st); }
+  const out = new Map();
+  for (const [, ni, enc] of GEO.r) {
+    if (ni < 0) continue;
+    const nm = GEO.n[ni], cands = byName.get(norm(nm)) || byCore.get(sortKey(nm));
+    if (!cands) continue;
+    const pts = decode(enc), mid = pts[(pts.length / 2) | 0];
+    let best = null, bd = Infinity;
+    for (const st of cands) { let d = Infinity; for (const a of st.addrs) d = Math.min(d, distM(mid, [a.lat, a.lon])); if (d < bd) { bd = d; best = st; } }
+    if (!best || bd > 350) continue;
+    let e = out.get(best.sk);
+    if (!e) out.set(best.sk, (e = { lines: [], bb: [90, 180, -90, -180] }));
+    e.lines.push(pts);
+    for (const [la, lo] of pts) { e.bb[0] = Math.min(e.bb[0], la); e.bb[1] = Math.min(e.bb[1], lo); e.bb[2] = Math.max(e.bb[2], la); e.bb[3] = Math.max(e.bb[3], lo); }
+  }
+  return out;
+});
+function segDist(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+  if (!l2) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1);
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+}
+/** Range toutes les adresses d'une rue dans un secteur (ou les en retire si zoneId est vide). */
+function assignStreetToZone(sk, zoneId) {
+  const st = streetOf(sk); if (!st) return 0;
+  const ids = new Set(st.addrs.map((a) => a.id));
+  for (const z of zones()) {
+    if (z.id === zoneId) continue;
+    const keep = (z.addrs || []).filter((x) => !ids.has(x));
+    if (keep.length !== (z.addrs || []).length) Store.put('zone', z.id, { ...z, addrs: keep });
+  }
+  const to = zoneId && Store.s.zones[zoneId];
+  if (to && !to.del) Store.put('zone', to.id, { ...to, addrs: [...new Set([...(to.addrs || []), ...ids])] });
+  return ids.size;
+}
 function orderStreetUnits(sk, order = 'sides') {
   const st = streetOf(sk); if (!st) return [];
   let list = [...st.addrs];
@@ -668,7 +710,7 @@ function renderMapView() {
   $('#streets-host').hidden = UI.mapMode !== 'streets';
   if (UI.mapMode === 'streets') renderStreets();
   else {
-    $('#map-legend').innerHTML = ST_FILTER.map((k) => `<div><span class="dot" data-st="${k}"></span>${STATUS[k].short}<b>${c[k]}</b></div>`).join('') + '<div class="legend-foot">Foyers, logements compris</div>';
+    $('#map-legend').innerHTML = ST_FILTER.map((k) => `<div><span class="dot" data-st="${k}"></span>${STATUS[k].short}<b>${c[k]}</b></div>`).join('') + '<div class="legend-foot">Touchez une rue pour la gérer</div>';
     $('#map-legend').hidden = !!MapView.lasso;
     $('#layer-lbl').textContent = MapView.layer === 'sat' ? 'Plan' : 'Satellite';
   }
@@ -735,6 +777,7 @@ function streetDetail(sk) {
     <div><div class="lbl">Côté pair · ${even.length}</div><div class="doors">${even.map((a) => bldTile(a)).join('') || '<span class="muted">—</span>'}</div></div>
   </div>
   <p class="muted" style="margin:0;font-size:13px">Un immeuble ? Touchez son numéro, puis « Plusieurs logements ».</p>
+  <div class="field"><label for="sd-zone">Secteur de toute la rue</label><select id="sd-zone" class="input" data-change="street-zone" data-sk="${esc(sk)}"><option value="">${zones().length ? '— Sans secteur —' : 'Aucun secteur créé'}</option>${zones().map((x) => `<option value="${x.id}" ${z.length === 1 && z[0] === x.name ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
   <section class="card"><div class="card-h"><h2>Passé par</h2></div>${who.length ? who.map(([id, n]) => `<button class="rank" data-act="member" data-v="${id}" style="grid-template-columns:auto 1fr auto">${avatar(id)}<span class="nm"><b>${esc(member(id)?.name || 'Ancien membre')}</b></span><span class="vals"><b>${n}</b><small>foyers</small></span></button>`).join('') : '<p class="muted" style="margin:0">Personne n’est encore passé dans cette rue.</p>'}</section>
   <button class="btn ghost" data-act="street-map" data-v="${esc(sk)}">${ico('map')} Voir la rue sur la carte</button>`;
 }
@@ -951,6 +994,45 @@ function openAddr(addrId, opts = {}) {
   const us = unitsOf(addrId); if (!us.length) return;
   if (us.length > 1) return openBuilding(addrId, opts);
   openUnit(us[0].id, opts);
+}
+let SS = null;
+function openStreetSheet(sk) {
+  const st = streetOf(sk); if (!st) return;
+  SS = { sk };
+  const panel = Sheet.open('street', () => { MapView.selStreet = null; MapView.draw(); SS = null; });
+  MapView.selStreet = sk; MapView.draw();
+  const draw = () => {
+    if (!SS) return;
+    const st2 = streetOf(SS.sk), r = stats().byStreet.get(SS.sk), zs = zones();
+    const inZ = new Map();
+    for (const a of st2.addrs) { const z = zoneOf(a.id); const k = z ? z.id : ''; inZ.set(k, (inZ.get(k) || 0) + 1); }
+    const only = inZ.size === 1 ? [...inZ.keys()][0] : '';
+    panel.innerHTML = `<div class="sheet-grab"></div>
+    <header class="sheet-head"><div class="t"><b>${esc(st2.name)}</b><small>${esc(st2.com)} · ${st2.addrs.length} adresses · ${r.total} foyers</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
+    <div class="sheet-body">
+      ${stackBar(r.st, r.total)}
+      <div class="kpis">
+        <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${r.total} foyers</span></div>
+        <div class="kpi"><b>${eur(r.amount)}</b><span>collectés</span></div>
+        <div class="kpi"><b>${r.st.todo}</b><span>à faire</span></div>
+        <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>absents · repasses</span></div>
+      </div>
+      <div class="field"><label for="st-zone">Secteur de toute la rue</label>
+        <select id="st-zone" class="input" data-change="street-zone" data-sk="${esc(SS.sk)}">
+          <option value="">${zs.length ? '— Sans secteur —' : 'Aucun secteur créé'}</option>
+          ${zs.map((z) => `<option value="${z.id}" ${only === z.id ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}
+        </select>
+        <small class="muted">${inZ.size > 1 ? `Partagée entre ${inZ.size} secteurs : choisir en range ${st2.addrs.length > 1 ? 'toutes les adresses' : "l'adresse"} dans un seul.` : 'Toutes les adresses de la rue suivront ce choix.'}</small>
+      </div>
+      ${zs.length ? '' : `<button class="btn ghost block" data-act="street-newzone" data-v="${esc(SS.sk)}">${ico('plus')} Créer un secteur avec cette rue</button>`}
+      <div class="grid2">
+        <button class="btn ghost" data-act="street-houses" data-v="${esc(SS.sk)}">${ico('grid')} Les maisons</button>
+        <button class="btn ghost" data-act="street-zoom" data-v="${esc(SS.sk)}">${ico('expand')} Cadrer</button>
+      </div>
+    </div>
+    <footer class="sheet-foot"><button class="btn red block" data-act="tour-start" data-v="${esc(SS.sk)}">${ico('door')} Démarrer la tournée ici</button></footer>`;
+  };
+  draw(); Sheet.refresh = draw;
 }
 let BS = null;
 function openBuilding(addrId, opts = {}) {
@@ -1300,7 +1382,7 @@ const IGN_URL = 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION
 const ROAD_W = [5, 4.5, 3.6, 2.2, 1.4, 1.1];
 function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 const MapView = {
-  map: null, layer: 'plan', sel: null, lasso: null, route: null, labels: [], _hit: [], _r: 4, _c: null,
+  map: null, layer: 'plan', sel: null, selStreet: null, lasso: null, route: null, labels: [], _hit: [], _r: 4, _c: null,
   show() { if (!this.map) this.init(); else { this.map.invalidateSize(); this.size(); this.draw(); } },
   init() {
     if (!window.L) return;
@@ -1411,25 +1493,66 @@ const MapView = {
     for (const [a, pt] of this._hit) { const d = Math.hypot(pt.x - p.x, pt.y - p.y); if (d < bd) { bd = d; best = a; } }
     return best && bd <= Math.max(18, this._r + 10) ? best : null;
   },
+  /** Rue dont le tracé passe le plus près du point touché (null si aucune à portée). */
+  hitStreet(p) {
+    const map = this.map, W = this._w, H = this._h, b = map.getBounds();
+    const [s0, w0, n0, e0] = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
+    let best = null, bd = Infinity;
+    for (const [sk, { lines, bb }] of streetRoads()) {
+      if (bb[2] < s0 || bb[0] > n0 || bb[3] < w0 || bb[1] > e0) continue;
+      if (!this.lasso && UI.com && streetOf(sk)?.com !== UI.com) continue;
+      for (const line of lines) {
+        let prev = null;
+        for (const ll of line) {
+          const q = map.latLngToContainerPoint(ll);
+          if (prev && !((q.x < -40 && prev.x < -40) || (q.y < -40 && prev.y < -40) || (q.x > W + 40 && prev.x > W + 40) || (q.y > H + 40 && prev.y > H + 40))) {
+            const d = segDist(p, prev, q);
+            if (d < bd) { bd = d; best = sk; }
+          }
+          prev = q;
+        }
+      }
+    }
+    if (best && bd <= 20) return best;
+    let na = null, nd = Infinity;
+    for (const [a, pt] of this._hit) { const d = Math.hypot(pt.x - p.x, pt.y - p.y); if (d < nd) { nd = d; na = a; } }
+    return na && nd <= 46 ? na.sk : null;
+  },
   click(p) {
-    const a = this.nearest(p);
-    if (this.lasso) { if (a) { ZE.addrs.has(a.id) ? ZE.addrs.delete(a.id) : ZE.addrs.add(a.id); this.renderLassoBar(); this.draw(); } return; }
+    const a = this.nearest(p), sk = a ? null : this.hitStreet(p);
+    if (this.lasso) {
+      if (a) { ZE.addrs.has(a.id) ? ZE.addrs.delete(a.id) : ZE.addrs.add(a.id); this.selStreet = null; }
+      else if (sk) {
+        const st = streetOf(sk), all = st.addrs.every((x) => ZE.addrs.has(x.id));
+        const add = this.lasso.mode !== 'remove' && !all;
+        for (const x of st.addrs) add ? ZE.addrs.add(x.id) : ZE.addrs.delete(x.id);
+        this.selStreet = sk;
+        vibrate(12);
+        toast(`${st.name} · ${st.addrs.length} adresse${st.addrs.length > 1 ? 's' : ''} ${add ? 'ajoutée' : 'retirée'}${st.addrs.length > 1 ? 's' : ''}`, { ms: 1800 });
+      } else return;
+      this.renderLassoBar(); this.draw();
+      return;
+    }
     if (a) openAddr(a.id);
+    else if (sk) openStreetSheet(sk);
   },
   // ── Lasso : entourer des maisons au doigt
   startLasso() {
     if (Page.cur) { $('#page').hidden = true; $('#page').innerHTML = ''; Page.cur = null; }
     Sheet.close(); UI.mapMode = 'map'; this.route = null; this.renderRouteBar();
     go('map');
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (!this.map || !ZE) return;
-      this.lasso = { mode: 'add', path: null };
-      this.setLassoInput();
-      const sel = [...ZE.addrs].map((id) => addrIdx().get(id)).filter(Boolean);
+    this.show();
+    if (!this.map || !ZE) return;
+    this.lasso = { mode: 'add', path: null };
+    this.setLassoInput();
+    $('#map-legend').hidden = true;
+    this.renderLassoBar();
+    const sel = [...ZE.addrs].map((id) => addrIdx().get(id)).filter(Boolean);
+    requestAnimationFrame(() => {
+      this.map.invalidateSize(); this.size();
       if (sel.length) this.fitTo(sel, true, 17.5);
-      $('#map-legend').hidden = true;
-      this.renderLassoBar(); this.draw();
-    }));
+      this.draw();
+    });
   },
   setLassoInput() {
     const drawing = this.lasso && this.lasso.mode !== 'pan', m = this.map;
@@ -1438,7 +1561,7 @@ const MapView = {
     for (const h of [m.dragging, m.touchZoom, m.doubleClickZoom, m.boxZoom]) drawing ? h.disable() : h.enable();
   },
   endLasso(apply) {
-    this.lasso = null; this.setLassoInput(); this.renderLassoBar(); $('#map-legend').hidden = false; this.draw();
+    this.lasso = null; this.selStreet = null; this.setLassoInput(); this.renderLassoBar(); $('#map-legend').hidden = false; this.draw();
     if (apply && ZE) Page.open('zone'); else ZE = null;
   },
   lassoPt(e) { const r = this.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; },
@@ -1462,12 +1585,15 @@ const MapView = {
   },
   renderLassoBar() {
     const bar = $('#draw-bar');
+    document.body.classList.toggle('lasso-on', !!(this.lasso && ZE));
     if (!this.lasso || !ZE) { bar.hidden = true; return; }
     const n = ZE.addrs.size, m = this.lasso.mode;
     bar.hidden = false;
-    bar.innerHTML = `<p><span class="zdot" style="--c:${ZE.color}"></span> <b>${esc(ZE.name)}</b> · ${n} adresse${n > 1 ? 's' : ''}. ${m === 'pan' ? 'Déplacez la carte, puis reprenez le tracé.' : m === 'add' ? 'Entourez des maisons au doigt pour les ajouter.' : 'Entourez des maisons pour les retirer.'} Les maisons cerclées de rouge n'ont pas encore de secteur.</p>
+    const hint = m === 'pan' ? 'Déplacez la carte, puis reprenez.' : m === 'add' ? 'Touchez une rue pour l\'ajouter entière, ou entourez des maisons.' : 'Touchez une rue pour la retirer, ou entourez des maisons.';
+    bar.innerHTML = `<p><span class="zdot" style="--c:${ZE.color}"></span> <b>${esc(ZE.name)}</b> · ${n} adresse${n > 1 ? 's' : ''}<br><small>${hint} Cerclées de rouge : sans secteur.</small></p>
       <div class="seg lasso-seg">${[['add', 'Ajouter'], ['remove', 'Retirer'], ['pan', 'Déplacer']].map(([v, l]) => `<button data-act="lasso-mode" data-v="${v}" aria-pressed="${m === v}">${l}</button>`).join('')}</div>
       <div class="chips"><button class="chip" data-act="lasso-cancel">Annuler</button><button class="chip go" data-act="lasso-done">${ico('check', 'sm')} Terminer</button></div>`;
+    document.documentElement.style.setProperty('--lasso-h', bar.offsetHeight + 'px');
   },
   showRoute() {
     const today = isoDay(), seen = new Set(), pts = [];
@@ -1517,6 +1643,17 @@ const MapView = {
       o.setTransform(this._dpr, 0, 0, this._dpr, 0, 0); o.clearRect(0, 0, W, H);
       for (const zn of zs) { o.fillStyle = zn.color; o.beginPath(); for (const id of zn.addrs || []) { const a = idx.get(id); if (!a) continue; const p = P(a.lat, a.lon); if (!inView(p, rad)) continue; o.moveTo(p.x + rad, p.y); o.arc(p.x, p.y, rad, 0, Math.PI * 2); } o.fill(); }
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = sat ? 0.3 : 0.2; ctx.drawImage(off, 0, 0); ctx.restore();
+    }
+    // Rue touchée : son tracé est surligné
+    if (this.selStreet) {
+      const e = streetRoads().get(this.selStreet);
+      if (e) {
+        ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.lineWidth = clamp(11 * Math.pow(2, z - 17), 7, 30);
+        ctx.strokeStyle = L0 && ZE ? ZE.color : c.red; ctx.globalAlpha = 0.45;
+        for (const line of e.lines) { ctx.beginPath(); line.forEach((ll, i) => { const q = P(ll[0], ll[1]); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }); ctx.stroke(); }
+        ctx.restore();
+      }
     }
     // Adresses : une pastille par adresse, en camembert pour les immeubles
     const r = z < 13.5 ? 1.8 : z < 15 ? 2.4 : z < 16 ? 3.2 : z < 17 ? 4.5 : z < 17.75 ? 6 : z < 18.5 ? 8 : 10.5;
@@ -1680,6 +1817,9 @@ const A = {
   'lasso-mode': (el) => { MapView.lasso.mode = el.dataset.v; MapView.setLassoInput(); MapView.renderLassoBar(); },
   'lasso-cancel': () => MapView.endLasso(!!(ZE && (ZE.id || ZE.fromPage))),
   'lasso-done': () => MapView.endLasso(true),
+  'street-houses': (el) => { Sheet.close(); UI.mapMode = 'streets'; UI.street = el.dataset.v; saveUI(); renderMapView(); $('#streets-host').scrollTop = 0; },
+  'street-zoom': (el) => { Sheet.close(); MapView.fitTo(streetOf(el.dataset.v)?.addrs || [], true, 18.5); },
+  'street-newzone': (el) => { const st = streetOf(el.dataset.v); Sheet.close(); ZE = newZE(); ZE.name = st.name; st.addrs.forEach((a) => ZE.addrs.add(a.id)); ZE.com = st.com; Page.open('zone'); },
   'route-today': () => MapView.showRoute(),
   'route-clear': () => { MapView.route = null; MapView.renderRouteBar(); MapView.draw(); },
   street: (el) => { UI.street = el.dataset.v; renderStreets(); $('#streets-host').scrollTop = 0; },
@@ -1850,6 +1990,10 @@ document.addEventListener('change', (e) => {
   else if (ch === 'com') { UI.com = t.value; saveUI(); App.changed(); MapView.fit(true); }
   else if (ch === 'sort') { UI.sort = t.value; saveUI(); renderStreets(); }
   else if (ch === 'hist-member') Page.set({ m: t.value });
+  else if (ch === 'street-zone') {
+    const sk = t.dataset.sk, n = assignStreetToZone(sk, t.value);
+    toast(t.value ? `${streetOf(sk)?.name} · ${n} adresse${n > 1 ? 's' : ''} rangée${n > 1 ? 's' : ''} dans ${Store.s.zones[t.value].name}.` : `${streetOf(sk)?.name} retirée de son secteur.`);
+  }
   else if (ch === 'addr-zone') {
     const id = t.dataset.id, z = t.value;
     if (z) moveAddrToZone(id, z); else { const from = zoneOf(id); if (from) Store.put('zone', from.id, { ...from, addrs: from.addrs.filter((x) => x !== id) }); }

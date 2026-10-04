@@ -1,6 +1,6 @@
 /* Service worker : l'app fonctionne sans réseau (porte-à-porte en zone blanche).
    Pensez à changer VERSION à chaque mise en ligne pour que les téléphones récupèrent la nouvelle version. */
-const VERSION = 'cal-2026-10-04b';
+const VERSION = 'cal-2026-10-04c';
 const TILES = 'cal-tiles';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'data.js', 'config.js', 'manifest.webmanifest',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/qrcode.js',

@@ -10,7 +10,8 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour la 
 - **Carte des 5 villages incluse dans l'app** (rues, bâtiments, rivières) : chaque adresse est une pastille colorée, découpée en parts pour les immeubles. Filtres par statut, commune et secteur, vue satellite IGN, position GPS.
 - **Secteurs**, pour qu'aucune maison ne soit oubliée :
   - **par rue** : cocher une rue entière, un côté (pair ou impair) ou des maisons précises ;
-  - **en entourant au doigt** sur la carte (ajouter, retirer, toucher une maison pour l'ajouter ou l'enlever) ;
+  - **sur la carte** : touchez une rue pour l'ajouter ou la retirer entière, ou entourez des maisons au doigt ;
+  - **une rue sur la carte**, hors mode secteur : sa fiche s'ouvre (avancement, collecte, secteur, démarrer la tournée) ;
   - **automatique** : un secteur par commune, ou un découpage équilibré qui garde les rues entières ;
   - une maison n'appartient qu'à **un seul** secteur ;
   - le compteur **« adresses sans secteur »** et la page pour les ranger rue par rue garantissent que tout est couvert.
