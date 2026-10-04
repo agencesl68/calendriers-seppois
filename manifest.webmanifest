@@ -1,0 +1,17 @@
+{
+  "name": "Tournée des calendriers · Amicale SP Seppois-le-Bas",
+  "short_name": "Calendriers",
+  "description": "Suivi de la vente des calendriers : carte, statut par adresse, repasses et équipe.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#15171A",
+  "theme_color": "#15171A",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
