@@ -335,6 +335,41 @@ function repasses() {
     return out.sort((x, y) => (x.date || '9999').localeCompare(y.date || '9999') || so[x.slot] - so[y.slot] || x.a.ci - y.a.ci || sortKey(x.a.street).localeCompare(sortKey(y.a.street)) || numCmp(x.a, y.a) || x.u.k - y.u.k);
   });
 }
+/** Cherche une adresse précise : « 12 bâle », « 3 cigognes ». Sans numéro, on laisse la recherche de rues. */
+function searchAddrs(q) {
+  const toks = norm(q).split(/\s+/).filter(Boolean);
+  const num = toks.find((t) => /^\d/.test(t));
+  if (!num) return [];
+  const words = toks.filter((t) => t !== num);
+  const out = [];
+  for (const a of addrs()) {
+    const an = norm(a.num);
+    if (an !== num && !an.startsWith(num + ' ')) continue;
+    if (UI.com && a.com !== UI.com) continue;
+    const hay = norm(a.street + ' ' + a.com);
+    if (!words.every((w) => hay.includes(w))) continue;
+    out.push(a);
+  }
+  return out.sort((x, y) => x.ci - y.ci || sortKey(x.street).localeCompare(sortKey(y.street), 'fr')).slice(0, 40);
+}
+/** Ce que le binôme de ce téléphone a encaissé aujourd'hui : utile pour la remise au trésorier. */
+function myDay() {
+  const team = Me.team(); if (!team.length) return null;
+  const today = isoDay(), r = { doors: 0, cal: 0, amount: 0, pay: {} };
+  for (const k of Object.keys(PAY)) r.pay[k] = 0;
+  for (const u of units()) {
+    for (const h of Store.s.passages[u.id]?.hist || []) {
+      if (h.s === 'todo' || isoDay(new Date(h.at)) !== today) continue;
+      if (!(h.by || []).some((x) => team.includes(x))) continue;
+      r.doors++;
+      if (h.s !== 'done') continue;
+      const amt = +h.amt || 0;
+      r.amount += amt; r.cal += +h.cal || 0;
+      r.pay[PAY[h.pay] ? h.pay : 'especes'] += amt;
+    }
+  }
+  return r.doors ? r : null;
+}
 function events() {
   return memo('events', () => {
     const out = [];
@@ -478,7 +513,7 @@ function makeDemo() {
   const ids = ['Thomas K.', 'Julie W.', 'Nicolas B.', 'Léa S.', 'Marc H.', 'Camille F.', 'Hugo R.', 'Inès D.', 'Paul G.', 'Chloé M.'].map((n, i) => { const id = 'demo-m' + i; s.members[id] = { id, name: n, color: PALETTE[i], u: 1 }; return id; });
   BASE_ADDRS.forEach((a, i) => { if ((a.com === 'Seppois-le-Bas' || a.com === 'Pfetterhouse') && i % 31 === 7) s.bld[a.id] = { id: a.id, n: 2 + (i % 5), labels: [], u: 1 }; });
   const now = Date.now(), today = isoDay(), days = [];
-  for (let k = 16; k >= 0; k--) { const iso = addDays(today, -k); const dw = new Date(iso + 'T12:00:00').getDay(); if (dw === 0 || dw === 6 || dw === 3) days.push(iso); }
+  for (let k = 16; k >= 0; k--) { const iso = addDays(today, -k); const dw = new Date(iso + 'T12:00:00').getDay(); if (dw === 0 || dw === 6 || dw === 3 || k === 0) days.push(iso); }
   const prog = [0.78, 0.55, 0.32, 0.62, 0.15];
   COMMUNES.forEach((com, zi) => {
     const id = 'demo-z' + zi, team = [ids[zi * 2], ids[zi * 2 + 1]];
@@ -651,6 +686,7 @@ function renderHome() {
       ${due.length ? `<div class="mini-list">${due.slice(0, 4).map(repRow).join('')}</div>${due.length > 4 ? `<button class="link" data-act="go" data-v="rep">Voir les ${due.length} repasses</button>` : ''}` : ''}
       <button class="btn red block" style="margin-top:14px" data-act="go" data-v="tour">${ico('door')} ${tourSt ? `Reprendre · ${esc(tourSt.name)}` : 'Commencer la tournée'}</button>
     </section>
+    ${myDayCard()}
     <section class="card">
       <div class="card-h"><h2>Par commune</h2><span class="muted">foyers visités · collecté</span></div>
       ${COMMUNES.map((c) => { const g = S.byCom[c] || { total: 0, visited: 0, amount: 0, st: blankSt() }; return `<button class="zone-row as-btn" data-act="com-go" data-v="${esc(c)}"><span class="zdot" style="--c:var(--ink-2)"></span><b>${esc(c)}</b><span class="meta">${pct(g.visited, g.total)} % · ${eur(g.amount)}</span>${stackBar(g.st, g.total, 'sm')}<span class="muted" style="grid-column:2/-1;font-size:12.5px">${nf(g.visited)} / ${nf(g.total)} foyers</span></button>`; }).join('')}
@@ -680,6 +716,20 @@ function renderHome() {
     </section>
   </div>
   </div></div>`;
+}
+function myDayCard() {
+  const d = myDay(); if (!d) return '';
+  const cash = d.pay.especes + d.pay.cheque;
+  return `<section class="card purse">
+    <div class="card-h"><h2>Ma caisse du jour</h2><span class="muted">${esc(names(Me.team()))}</span></div>
+    <div class="today">
+      <div class="kpi"><b>${eur(d.amount)}</b><span>encaissés</span></div>
+      <div class="kpi"><b>${nf(d.cal)}</b><span>calendriers</span></div>
+      <div class="kpi"><b>${d.doors}</b><span>passages</span></div>
+    </div>
+    <div class="hbars" style="margin-top:14px">${Object.keys(PAY).filter((k) => d.pay[k]).map((k) => `<div class="hbar" style="--c:${PAY_COLOR[k]}"><span class="t">${PAY[k]}</span><span class="v">${eur(d.pay[k])}</span><span class="track"><i style="width:${(d.pay[k] / d.amount) * 100}%"></i></span></div>`).join('') || '<p class="muted" style="margin:0">Aucun don encaissé pour l’instant.</p>'}</div>
+    ${cash ? `<div class="purse-note">${ico('euro', 'sm')}<span><b>${eur(cash)}</b> à remettre au trésorier : espèces et chèques que vous avez sur vous.</span></div>` : ''}
+  </section>`;
 }
 function repRow(r) {
   const late = r.date < isoDay();
@@ -725,12 +775,21 @@ function renderStreets() {
   host.innerHTML = `<div class="view-in">
     ${comChips('com', UI.com, counts)}
     <div class="street-tools">
-      <div class="input-ico">${ico('search')}<input id="street-q" class="input" type="search" placeholder="Chercher une rue" value="${esc(UI.q)}" autocomplete="off" aria-label="Chercher une rue"></div>
+      <div class="input-ico">${ico('search')}<input id="street-q" class="input" type="search" placeholder="Rue, ou n° et rue (12 bâle)" value="${esc(UI.q)}" autocomplete="off" aria-label="Chercher une rue ou une adresse"></div>
       <select class="input" style="width:auto" data-change="sort" aria-label="Trier les rues">${[['alpha', 'A → Z'], ['todo', 'Le plus à faire'], ['prog', 'Avancement']].map(([v, l]) => `<option value="${v}" ${UI.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
+    <div id="addr-hits">${addrHits()}</div>
     <div id="street-list">${streetRows()}</div>
     <p class="muted" style="font-size:12.5px;margin:0">${nf(S.total)} foyers dans ${streets().length} rues.</p>
   </div>`;
+}
+function addrHits() {
+  const hits = searchAddrs(UI.q);
+  if (!hits.length) return '';
+  return `<section class="card hits"><div class="card-h"><h2>Adresses</h2><span class="muted">${hits.length}</span></div>${hits.map((a) => {
+    const us = unitsOf(a.id), c = addrSt(a.id), st = us.length > 1 ? null : statusOf(a.id);
+    return `<button class="mini-row" data-act="addr" data-id="${a.id}"><span class="plaque num sm">${esc(a.num)}</span><span class="grow"><b>${esc(a.street)}</b><small>${esc(a.com)}${us.length > 1 ? ` · ${us.length} logements` : ''}</small></span>${st ? stPill(st) : stackBar(c, us.length, 'sm')}</button>`;
+  }).join('')}</section>`;
 }
 function streetRows() {
   const S = stats(), q = norm(UI.q), zi = zoneIndex();
@@ -740,7 +799,7 @@ function streetRows() {
   const g = (st) => S.byStreet.get(st.sk), prog = (st) => g(st).visited / g(st).total;
   if (UI.sort === 'todo') rows.sort((a, b) => g(b).st.todo - g(a).st.todo);
   else if (UI.sort === 'prog') rows.sort((a, b) => prog(b) - prog(a));
-  if (!rows.length) return '<div class="empty"><b>Aucune rue</b>Modifiez la recherche ou les filtres.</div>';
+  if (!rows.length) return searchAddrs(UI.q).length ? '' : '<div class="empty"><b>Aucune rue</b>Modifiez la recherche ou les filtres.</div>';
   const card = (st) => {
     const r = g(st);
     const info = [r.st.todo ? `${r.st.todo} à faire` : 'Rue terminée', r.st.repasse ? `${r.st.repasse} à repasser` : '', r.st.absent ? `${r.st.absent} absents` : ''].filter(Boolean).join(' · ');
@@ -840,7 +899,7 @@ function renderTour() {
   const S = stats(), st = T.near ? null : streetOf(T.street), r = st ? S.byStreet.get(st.sk) : null;
   const remaining = full.filter((u) => OPEN.has(statusOf(u.id)));
   const head = `<div class="tour-top"><button class="chip" data-act="tour-pick">${ico('chev-l', 'sm')} ${T.near ? 'Autour de moi' : 'Changer de rue'}</button>${tourTeamLine()}</div>
-    ${r ? `<div class="plaque street">${esc(st.name)}</div><div class="sr-top" style="font-weight:600"><span class="muted">${esc(st.com)} · <b style="color:var(--ink)">${r.visited}/${r.total}</b> foyers · ${remaining.length} à faire ou revoir</span><span>${eur(r.amount)}</span></div>${stackBar(r.st, r.total)}` : ''}`;
+    ${r ? `<div class="plaque street">${esc(st.name)}</div><div class="sr-top tour-stats"><span class="muted">${esc(st.com)} · <b>${r.visited}/${r.total}</b> foyers · ${remaining.length} à faire ou revoir</span><span class="amt">${eur(r.amount)}</span></div>${stackBar(r.st, r.total)}` : ''}`;
   if (!cur || (T.open && !remaining.length && !OPEN.has(statusOf(cur.id)) && TD.mode == null && !T.near)) {
     const team = Me.team(), zi = zoneIndex();
     const mine = zones().filter((z) => (z.members || []).some((m) => team.includes(m)));
@@ -1962,7 +2021,7 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.id === 'street-q') { UI.q = t.value; $('#street-list').innerHTML = streetRows(); return; }
+  if (t.id === 'street-q') { UI.q = t.value; $('#addr-hits').innerHTML = addrHits(); $('#street-list').innerHTML = streetRows(); return; }
   if (t.id === 'ze-q' && ZE) { ZE.q = t.value; const pos = t.selectionStart; Page.render(false); const n = $('#ze-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } return; }
   if (t.id === 'ze-name' && ZE) { ZE.name = t.value; return; }
   if (t.dataset.bind && AS) {

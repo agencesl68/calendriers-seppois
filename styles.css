@@ -576,3 +576,165 @@ details.more > div { display: grid; gap: 12px; margin-top: 12px; }
 .draw-bar p small { display: inline-block; margin-top: 3px; font-size: 12px; opacity: .72; font-weight: 500; }
 /* Pendant le choix d'un secteur, le message passe au-dessus du bandeau */
 body.lasso-on .toast { bottom: calc(var(--lasso-h, 190px) + 100px + env(safe-area-inset-bottom, 0px)); }
+
+/* ═══════════ Compatibilité : téléphones et navigateurs plus anciens ═══════════ */
+
+/* color-mix() n'existe pas avant Safari 16.2 / Chrome 111 : couleurs de repli unies. */
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .st-pill { background: var(--surface-2); }
+  .leaflet-control-attribution, .map-legend { background: var(--surface) !important; }
+  .draw-bar .chip { border-color: rgb(255 255 255 / .35); }
+  .toast button { background: rgb(255 255 255 / .18); }
+  .lasso-seg { background: rgb(255 255 255 / .12); border-color: rgb(255 255 255 / .3); }
+  .lasso-seg button { color: rgb(255 255 255 / .75); }
+  .rp-slot, .apt { background: var(--surface-2); }
+  .confirm, .alert-row { background: var(--surface-2); border-color: var(--st-refus); }
+  .cov-bar { background: var(--line); }
+  .map-hint { background: var(--chrome); }
+}
+/* aspect-ratio arrive avec Safari 15 : les numéros gardent une taille correcte sans lui. */
+@supports not (aspect-ratio: 1 / 1) {
+  .dt { min-height: 54px; }
+}
+/* Les navigateurs sans backdrop-filter affichent un fond opaque plutôt que translucide. */
+@supports not ((backdrop-filter: blur(8px)) or (-webkit-backdrop-filter: blur(8px))) {
+  .map-legend { background: var(--surface); }
+}
+/* Sur iOS, un champ sous 16px fait zoomer la page à la saisie. */
+.input, .input.sm, select.input, textarea.input { font-size: 16px; }
+.input.sm { padding: 0 11px; }
+select.input.sm { padding-right: 30px; }
+
+/* ═══════════ Petits écrans (iPhone SE, Android 360 px) ═══════════ */
+@media (max-width: 400px) {
+  .view-in { padding-inline: 12px; gap: 14px; }
+  .card { padding: 14px; }
+  .hero-field { grid-template-columns: repeat(3, 1fr); gap: 7px; padding-inline: 9px; }
+  .shield { padding: 10px 3px 20px; }
+  .shield span { font-size: 9.5px; letter-spacing: .04em; }
+  .today { gap: 7px; }
+  .kpi b { font-size: 25px; }
+  .plaque.num.xl { min-width: 104px; height: 96px; font-size: 60px; padding: 0 14px; }
+  .door-card { padding: 14px; gap: 14px; border-radius: 18px; }
+  .door-head { gap: 12px; }
+  .acts { gap: 8px; }
+  .act { min-height: 64px; font-size: 14px; }
+  .act.big { min-height: 70px; font-size: 21px; }
+  .amt-grid { gap: 6px; }
+  .amt-grid button { min-height: 50px; font-size: 21px; }
+  .tour-nav { gap: 6px; }
+  .tour-nav .btn { padding: 0 10px; font-size: 15px; }
+  .rp-item { grid-template-columns: auto 1fr; gap: 8px 10px; padding: 11px 12px; }
+  .rp-quick { grid-column: 1 / -1; justify-content: flex-start; }
+  .zs-check { width: 48px; }
+  .zs-name { padding: 10px 11px; }
+  .page-body { padding-inline: 12px; }
+  .doors { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 5px; }
+}
+@media (max-width: 340px) {
+  .tabs > button span { font-size: 10.5px; }
+  .acts { grid-template-columns: 1fr 1fr; }
+  .act.big { grid-column: 1 / -1; }
+  .hero-amt { font-size: 50px; }
+}
+
+/* ═══════════ Téléphone à l'horizontale (écran très bas) ═══════════ */
+@media (orientation: landscape) and (max-height: 540px) {
+  .sheet-panel { max-height: 97%; }
+  .sheet-body { padding: 12px 16px; gap: 12px; }
+  .view-in { padding-block: 12px 24px; }
+  .hero-chief { padding: 12px 16px; }
+  .hero-amt { font-size: 46px; margin: 6px 0 10px; }
+  .hero-field { padding: 10px 12px 12px; }
+  .shield { padding: 8px 6px 16px; }
+  .tabs > button { min-height: 44px; }
+  .tabs .fab-disc { width: 48px; height: 48px; margin-top: -16px; }
+  .welcome { gap: 12px; }
+  .w-crest { width: 92px; height: 92px; border-radius: 22px; }
+  .w-title { font-size: 38px; }
+}
+
+/* Grands téléphones et tablettes : on profite de la largeur. */
+@media (min-width: 600px) and (max-width: 899px) {
+  .st-grid { grid-template-columns: repeat(3, 1fr); }
+  .st-grid .st-cell:first-child { grid-column: auto; }
+  .street-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Confort tactile : les cibles passent à 44 px, la taille recommandée au doigt. */
+.chip, .seg button, .btn.sm { min-height: 44px; }
+.chip { padding: 0 15px; }
+.chip.date-chip input { min-height: 42px; }
+.zs-doors .chip { min-height: 38px; padding: 0 13px; font-size: 13.5px; }
+.mchip { padding-left: 5px; }
+.icon-btn { width: 44px; height: 44px; }
+.stepper button { width: 50px; height: 50px; }
+.stepper { min-height: 50px; }
+@media (hover: none) {
+  .st-cell, .mini-row, .rank, .zone-row.as-btn, .street-row, .rp-main { min-height: 48px; }
+  .swatches button { width: 40px; height: 40px; }
+}
+
+/* ───────── Caisse du jour et recherche d'adresse */
+.purse { border-top: 4px solid var(--gold); }
+.purse-note { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 11px 13px; border-radius: 12px; background: var(--surface-2); font-size: 14px; line-height: 1.35; }
+.purse-note .ico { color: var(--gold-ink); flex: none; }
+:root[data-theme="dark"] .purse-note .ico { color: var(--gold); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .purse-note .ico { color: var(--gold); } }
+.hits .mini-row { gap: 12px; }
+.plaque.num.sm { min-width: 46px; height: 40px; padding: 0 8px; font-size: 20px; border-radius: 7px; box-shadow: inset 0 0 0 2px var(--enamel), inset 0 0 0 3.5px rgb(255 255 255 / .92), 0 1px 4px rgb(0 0 0 / .16); }
+.hits .stack { width: 72px; flex: none; }
+/* Ligne de progression de la rue en tournée : elle passe à la ligne sur les écrans étroits. */
+.tour-stats { flex-wrap: wrap; font-weight: 600; column-gap: 10px; }
+.tour-stats > span { min-width: 0; }
+.tour-stats .muted { flex: 1 1 190px; }
+.tour-stats b { color: var(--ink); white-space: normal; }
+.tour-stats .amt { font: 800 18px var(--f-display); font-variant-numeric: tabular-nums; }
+
+/* Écrans courts (iPhone SE, Android compacts) : le bouton principal reste atteignable. */
+@media (max-height: 700px) {
+  .demo-banner { padding: 6px 12px; font-size: 12.5px; gap: 8px; }
+  .demo-banner b { font-size: 12px; padding: 1px 6px; }
+  .tour-top { gap: 8px; }
+  .plaque.street { padding: 8px 14px; font-size: 18px; }
+  .door-card { gap: 12px; padding: 13px; }
+  .plaque.num.xl { min-width: 92px; height: 84px; font-size: 52px; }
+  .door-meta p { font-size: 13px; }
+  .act { min-height: 60px; }
+  .act.big { min-height: 66px; }
+  .view-in { padding-block: 14px 28px; }
+}
+
+/* Téléphone à l'horizontale : la porte et ses boutons côte à côte, en-tête compact. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .demo-banner { padding: 4px 12px; font-size: 12px; }
+  #v-tour .plaque.street { font-size: 16px; padding: 6px 13px; }
+  #v-tour .tour-stats { font-size: 12.5px; }
+  #v-tour .tour-stats .amt { font-size: 16px; }
+  #v-tour .stack { height: 8px; }
+  #v-tour .tour-strip, #v-tour .tour-opts { display: none; }
+  .plaque.num.xl { min-width: 86px; height: 78px; font-size: 48px; }
+  .door-card { padding: 12px; gap: 12px; }
+}
+@media (orientation: landscape) and (max-height: 540px) and (min-width: 620px) {
+  .door-card { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: center; }
+  .door-card > .door-head { grid-column: 1; }
+  .door-card > .acts, .door-card > .quick { grid-column: 2; }
+  .tour-nav { max-width: 520px; margin-inline: auto; }
+}
+/* … et on récupère de la hauteur sur les barres fixes. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .top { padding-top: calc(env(safe-area-inset-top, 0px) + 6px); padding-bottom: 6px; gap: 8px; }
+  .top h1 { font-size: 19px; }
+  .crest { width: 36px; height: 36px; border-radius: 10px; }
+  .me-btn { width: 32px; height: 32px; }
+  .icon-btn { width: 38px; height: 38px; }
+  .hivis { height: 6px; }
+  #v-tour .view-in { gap: 9px; }
+  .tour-top .chip, .tour-team { min-height: 36px; }
+  .tabs { padding-top: 2px; }
+  .tabs > button { min-height: 44px; gap: 1px; }
+  .tabs > button span { font-size: 10.5px; }
+  .tabs .fab-disc { width: 44px; height: 44px; margin-top: -14px; }
+  .tabs .fab-disc .ico { width: 21px; height: 21px; }
+}

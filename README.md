@@ -19,7 +19,10 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour la 
 - **Repasses** : date, créneau et consigne ; agenda jour par jour, retards en rouge, itinéraire du jour sur la carte.
 - **Qui a fait quoi** : chaque passage est attribué au pompier ou au binôme ; fiche par membre avec ses rues et ses maisons ; classement.
 - **Tableau de bord** : total collecté, objectif, calendriers, moyenne par calendrier, foyers visités, avancement par commune et par secteur, règlements (espèces, chèque, CB, Wero), collecte des 14 derniers jours, historique.
+- **Ma caisse du jour** : ce que votre binôme a encaissé aujourd'hui, et le montant en espèces et chèques à remettre au trésorier le soir.
+- **Recherche d'adresse** : tapez « 12 bâle » dans l'onglet Rues pour tomber directement sur le bon foyer.
 - **Export pour le trésorier** (CSV pour Excel) et sauvegarde complète.
+- **Tous les téléphones** : de l'iPhone SE aux grands Android, à la verticale comme à l'horizontale, en thème clair ou sombre, avec des boutons dimensionnés pour le doigt et un repli pour les navigateurs plus anciens.
 - **Mode démo** avec des données fictives pour présenter l'app à l'amicale.
 
 ## 1. Mettre l'app en ligne sur GitHub Pages (gratuit)
