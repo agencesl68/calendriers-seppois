@@ -15,7 +15,6 @@
 const ONGLET_DONNEES = 'Données';
 const ONGLET_REGLAGES = 'Réglages';
 const STATUTS = { todo: 'À faire', done: 'Calendrier donné', absent: 'Absent', repasse: 'À repasser', refus: 'Refus' };
-const REGLEMENTS = { especes: 'Espèces', cheque: 'Chèque', cb: 'Carte bancaire', autre: 'Wero / virement' };
 const CRENEAUX = { matin: 'Matin', midi: 'Midi', aprem: 'Après-midi', soir: 'Soir' };
 
 function doGet() {
@@ -88,7 +87,7 @@ function synchroniser_(req) {
   }
 }
 
-/** Reconstruit les onglets lisibles « Tableau » (une ligne par logement) et « Bilan ». */
+/** Reconstruit les onglets lisibles « Tableau » (une ligne par foyer) et « Répartition ». */
 function mettreAJourTableau() {
   const ss = SpreadsheetApp.getActive();
   const reglages = onglet_(ss, ONGLET_REGLAGES, ['Paramètre', 'Valeur']);
@@ -99,38 +98,37 @@ function mettreAJourTableau() {
   const sh = ss.getSheetByName(ONGLET_DONNEES);
   if (!sh || sh.getLastRow() < 2) return;
   const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues();
-  const membres = {}, secteurs = {}, passages = [];
+  const membres = {}, zonesParId = {}, passages = [];
   const zoneDe = {};
   rows.forEach((r) => {
     let d = {};
     try { d = JSON.parse(r[6] || '{}'); } catch (err) { return; }
     if (r[1] === 'member' && !d.del) membres[r[2]] = d.name;
-    if (r[1] === 'zone' && !d.del) { secteurs[r[2]] = d.name; (d.addrs || []).forEach((a) => { zoneDe[a] = d.name; }); }
+    if (r[1] === 'zone' && !d.del) { zonesParId[r[2]] = d; (d.addrs || []).forEach((a) => { zoneDe[a] = r[2]; }); }
     if (r[1] === 'passage') passages.push({ id: String(r[2]), d: d });
   });
+  const equipeDe = (zid) => (zonesParId[zid] && (zonesParId[zid].members || []).map((m) => membres[m] || '?').join(' + ')) || '';
 
-  const tableau = [['Commune', 'Rue', 'N°', 'Logement', 'Statut', 'Calendriers', 'Montant (€)', 'Règlement', 'N° chèque', 'Fait par', 'Date', 'Repasse prévue', 'Note', 'Secteur']];
-  const bilan = { total: 0, cal: 0, statut: {}, reglement: {}, commune: {}, membre: {} };
+  const tableau = [['Commune', 'Rue', 'N°', 'Logement', 'Statut', 'Fait par', 'Date', 'Repasse prévue', 'Consigne', 'Note', 'Secteur', 'Équipe du secteur']];
+  const bilan = { statut: {}, commune: {}, membre: {} };
   passages.forEach((p) => {
     const d = p.d, l = d._l || {}, statut = d.status || 'todo';
     if (statut === 'todo' && !(d.hist || []).length) return;
     const par = (d.by || []).map((id) => membres[id] || '?').join(' + ');
-    const donne = statut === 'done';
-    const montant = donne ? Number(d.amt) || 0 : 0;
+    const zid = zoneDe[p.id.split('~')[0]];
     tableau.push([
       l.com || '', l.rue || '', l.num || '', l.lg || '', STATUTS[statut] || statut,
-      donne ? Number(d.cal) || 0 : '', donne ? montant : '', donne ? (REGLEMENTS[d.pay] || '') : '', d.chq || '',
       par, d.at ? new Date(d.at) : '',
       d.rp && d.rp.date ? d.rp.date + (d.rp.slot ? ' (' + (CRENEAUX[d.rp.slot] || d.rp.slot) + ')' : '') : '',
-      [d.note, d.rp && d.rp.note].filter(function (x) { return !!x; }).join(' / '), zoneDe[p.id.split('~')[0]] || '',
+      (d.rp && d.rp.note) || '', d.note || '',
+      (zid && zonesParId[zid] && zonesParId[zid].name) || '', equipeDe(zid),
     ]);
-    bilan.statut[STATUTS[statut] || statut] = (bilan.statut[STATUTS[statut] || statut] || 0) + 1;
-    if (donne) {
-      bilan.total += montant; bilan.cal += Number(d.cal) || 0;
-      const r = REGLEMENTS[d.pay] || 'Autre'; bilan.reglement[r] = (bilan.reglement[r] || 0) + montant;
-      const c = l.com || '?'; bilan.commune[c] = (bilan.commune[c] || 0) + montant;
-      const by = d.by || []; by.forEach((id) => { const n = membres[id] || '?'; bilan.membre[n] = (bilan.membre[n] || 0) + montant / by.length; });
-    }
+    const nomStatut = STATUTS[statut] || statut;
+    bilan.statut[nomStatut] = (bilan.statut[nomStatut] || 0) + 1;
+    const c = l.com || '?';
+    bilan.commune[c] = bilan.commune[c] || { faits: 0 };
+    bilan.commune[c].faits += 1;
+    (d.by || []).forEach((id) => { const n = membres[id] || '?'; bilan.membre[n] = (bilan.membre[n] || 0) + 1; });
   });
   tableau.splice(1, tableau.length - 1, ...tableau.slice(1).sort((a, b) => String(a[0] + a[1]).localeCompare(String(b[0] + b[1]), 'fr') || (parseInt(a[2], 10) || 0) - (parseInt(b[2], 10) || 0)));
 
@@ -139,30 +137,28 @@ function mettreAJourTableau() {
   t.getRange(1, 1, tableau.length, tableau[0].length).setValues(tableau);
   t.getRange(1, 1, 1, tableau[0].length).setFontWeight('bold').setBackground('#15171A').setFontColor('#FFFFFF');
   t.setFrozenRows(1);
-  if (tableau.length > 1) {
-    t.getRange(2, 7, tableau.length - 1, 1).setNumberFormat('#,##0.00 €');
-    t.getRange(2, 11, tableau.length - 1, 1).setNumberFormat('dd/MM/yyyy HH:mm');
-  }
+  if (tableau.length > 1) t.getRange(2, 7, tableau.length - 1, 1).setNumberFormat('dd/MM/yyyy HH:mm');
 
-  const b = ss.getSheetByName('Bilan') || ss.insertSheet('Bilan', 1);
+  const b = ss.getSheetByName('Répartition') || ss.insertSheet('Répartition', 1);
   b.clear();
-  const lignes = [['Bilan de la tournée', ''], ['Mis à jour le', new Date()], ['', ''], ['Total collecté', bilan.total], ['Calendriers remis', bilan.cal], ['', ''], ['Par statut', '']];
+  const lignes = [['Répartition et avancement', ''], ['Mis à jour le', new Date()], ['', ''], ['Secteur', 'Équipe']];
+  Object.keys(zonesParId).forEach((zid) => lignes.push([zonesParId[zid].name || '', equipeDe(zid)]));
+  lignes.push(['', ''], ['Foyers par statut', '']);
   Object.keys(bilan.statut).forEach((k) => lignes.push([k, bilan.statut[k]]));
-  lignes.push(['', ''], ['Par règlement', '']);
-  Object.keys(bilan.reglement).forEach((k) => lignes.push([k, bilan.reglement[k]]));
-  lignes.push(['', ''], ['Par commune', '']);
-  Object.keys(bilan.commune).sort().forEach((k) => lignes.push([k, bilan.commune[k]]));
-  lignes.push(['', ''], ['Par pompier (part du binôme)', '']);
-  Object.keys(bilan.membre).sort((x, y) => bilan.membre[y] - bilan.membre[x]).forEach((k) => lignes.push([k, Math.round(bilan.membre[k] * 100) / 100]));
+  lignes.push(['', ''], ['Foyers faits par commune', '']);
+  Object.keys(bilan.commune).sort().forEach((k) => lignes.push([k, bilan.commune[k].faits]));
+  lignes.push(['', ''], ['Foyers faits par pompier', '']);
+  Object.keys(bilan.membre).sort((x, y) => bilan.membre[y] - bilan.membre[x]).forEach((k) => lignes.push([k, bilan.membre[k]]));
   b.getRange(1, 1, lignes.length, 2).setValues(lignes);
   b.getRange('A1').setFontWeight('bold').setFontSize(14);
+  b.getRange('A4:B4').setFontWeight('bold');
   b.getRange('B2').setNumberFormat('dd/MM/yyyy HH:mm');
-  b.setColumnWidth(1, 260);
+  b.setColumnWidth(1, 260); b.setColumnWidth(2, 300);
 
   reglages.getRange('A4:B4').setValues([['Tableau mis à jour', Date.now()]]);
 }
 
-/** À exécuter une fois : mise à jour automatique des onglets Tableau et Bilan toutes les 10 minutes. */
+/** À exécuter une fois : met à jour les onglets Tableau et Répartition toutes les 10 minutes. */
 function installer() {
   ScriptApp.getProjectTriggers().forEach((t) => { if (t.getHandlerFunction() === 'mettreAJourTableau') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('mettreAJourTableau').timeBased().everyMinutes(10).create();

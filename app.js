@@ -13,10 +13,7 @@ const uid = (p = '') => p + Date.now().toString(36) + Math.random().toString(36)
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const sum = (arr, f = (x) => x) => arr.reduce((t, x) => t + (+f(x) || 0), 0);
 const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
-const fmtE0 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-const fmtE2 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtN = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
-const eur = (n) => (Math.abs(Math.round((n || 0) * 100)) % 100 === 0 ? fmtE0 : fmtE2).format(n || 0);
 const nf = (n) => fmtN.format(n || 0);
 const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 const num = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0; };
@@ -46,7 +43,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage plein ou bloqué */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* idem */ } },
 };
-const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed' };
+const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed' };
 
 // ═════════════════════════ Données du secteur (5 communes)
 const O_LAT = 47.5, O_LON = 7.1;
@@ -72,17 +69,13 @@ const ST_ORDER = ['done', 'absent', 'repasse', 'refus', 'todo'];
 const ST_FILTER = ['todo', 'done', 'absent', 'repasse', 'refus'];
 const OPEN = new Set(['todo', 'absent', 'repasse']);
 const blankSt = () => ({ todo: 0, done: 0, absent: 0, repasse: 0, refus: 0 });
-const PAY = { especes: 'Espèces', cheque: 'Chèque', cb: 'Carte bancaire', autre: 'Wero / virement' };
-const PAY_SHORT = { especes: 'espèces', cheque: 'chèque', cb: 'CB', autre: 'Wero' };
-const PAY_COLOR = { especes: '#D4A106', cheque: '#7C3AED', cb: '#2F6FE4', autre: '#0D9488' };
 const SLOTS = { matin: 'Matin', midi: 'Midi', aprem: 'Après-midi', soir: 'Soir' };
 const SLOT_SHORT = { matin: 'Matin', midi: 'Midi', aprem: 'Aprèm', soir: 'Soir' };
 const PALETTE = ['#2F6FE4', '#7C3AED', '#0D9488', '#DB2777', '#CA8A04', '#4F46E5', '#EA580C', '#0891B2', '#65A30D', '#9333EA', '#BE123C', '#475569'];
 const ZONE_COLORS = ['#7C3AED', '#0891B2', '#DB2777', '#0D9488', '#CA8A04', '#4F46E5', '#EA580C', '#65A30D', '#9333EA', '#BE123C', '#2F6FE4', '#475569'];
-const AMOUNTS = [5, 10, 15, 20, 30];
 
 // ═════════════════════════ Stockage local + mode démo
-const EMPTY = () => ({ settings: { name: 'Calendriers 2027', year: 2027, goal: 15000, price: 10, u: 0 }, members: {}, zones: {}, passages: {}, extra: {}, bld: {} });
+const EMPTY = () => ({ settings: { name: 'Calendriers 2027', year: 2027, code: '', u: 0 }, members: {}, zones: {}, passages: {}, extra: {}, bld: {} });
 const KIND_COL = { passage: 'passages', member: 'members', zone: 'zones', addr: 'extra', bld: 'bld' };
 
 const Store = {
@@ -191,12 +184,44 @@ UI.tour = Object.assign({ street: null, near: false, order: 'sides', open: true,
 UI.street = null;
 const saveUI = () => LS.set(K.ui, { view: UI.view, mapMode: UI.mapMode, filter: UI.filter, zone: UI.zone, com: UI.com, sort: UI.sort, tour: UI.tour });
 
+const MAX_TEAM = 4;
+/** L'équipe qui tourne avec ce téléphone : 1 à 4 personnes (le plus souvent 2 ou 3). */
 const Me = {
   key() { return Store.demoOn ? K.me + '.demo' : K.me; },
-  get() { const v = LS.get(this.key(), null); if (!v && Store.demoOn) return { me: 'demo-m0', partner: 'demo-m1' }; return v || { me: '', partner: '' }; },
-  set(v) { LS.set(this.key(), v); App.changed(); },
-  team() { const { me, partner } = this.get(); return [me, partner].filter((id, i, a) => id && member(id) && a.indexOf(id) === i); },
+  raw() {
+    const v = LS.get(this.key(), null);
+    if (Array.isArray(v)) return v;
+    if (v && typeof v === 'object') return [v.me, v.partner].filter(Boolean);   // ancien format
+    return Store.demoOn ? ['demo-m0', 'demo-m1'] : [];
+  },
+  team() { return this.raw().filter((id, i, a) => member(id) && a.indexOf(id) === i).slice(0, MAX_TEAM); },
+  set(ids) { LS.set(this.key(), [...new Set(ids)].slice(0, MAX_TEAM)); App.changed(); },
+  toggle(id) {
+    const t = this.team();
+    if (t.includes(id)) this.set(t.filter((x) => x !== id));
+    else if (t.length >= MAX_TEAM) toast(`Quatre personnes au maximum sur un téléphone.`);
+    else this.set([...t, id]);
+  },
+  has(id) { return this.team().includes(id); },
 };
+/** Deux accès : « responsable » (il répartit les rues) et « distributeur » (il fait les portes). */
+const Role = {
+  get() { return LS.get(K.role, '') || (Store.demoOn ? 'admin' : ''); },
+  set(r) { LS.set(K.role, r); App.changed(); },
+  get admin() { return this.get() === 'admin'; },
+  get chosen() { return !!this.get(); },
+};
+const adminCode = () => String(Store.s.settings.code || '');
+/** Entre dans l'accès responsable. Sans code enregistré, le premier à en créer un devient responsable. */
+function tryAdmin(code) {
+  const c = String(code || '').trim();
+  if (!/^\d{4,8}$/.test(c)) { toast('Le code est composé de 4 à 8 chiffres.'); return false; }
+  const cur = adminCode();
+  if (!cur) Store.put('settings', 'main', { ...Store.s.settings, code: c });
+  else if (cur !== c) { toast('Code incorrect.'); return false; }
+  Role.set('admin');
+  return true;
+}
 
 // ═════════════════════════ Données dérivées (mémorisées par révision)
 const _memo = {};
@@ -286,16 +311,30 @@ function orderStreetUnits(sk, order = 'sides') {
   return list.flatMap((a) => unitsOf(a.id));
 }
 
+/** Les secteurs confiés à l'équipe de ce téléphone. */
+const myZones = () => { const t = Me.team(); return t.length ? zones().filter((z) => (z.members || []).some((m) => t.includes(m))) : []; };
+/** Avancement cumulé d'une liste de secteurs. */
+function zonesProgress(list) {
+  const S = stats(), out = { total: 0, visited: 0, st: blankSt() };
+  for (const z of list) {
+    const g = S.byZone[z.id]; if (!g) continue;
+    out.total += g.total; out.visited += g.visited;
+    for (const k of ST_FILTER) out.st[k] += g.st[k];
+  }
+  return out;
+}
+/** Rues d'une liste de secteurs, dans l'ordre de la tournée. */
+function zonesStreets(list) {
+  const ids = new Set(list.flatMap((z) => z.addrs || []));
+  return streets().filter((st) => st.addrs.some((a) => ids.has(a.id)));
+}
+const openOf = (st) => st.addrs.reduce((t, a) => t + unitsOf(a.id).filter((u) => OPEN.has(statusOf(u.id))).length, 0);
 function stats() {
   return memo('stats', () => {
     const s = Store.s, zi = zoneIndex();
-    const st = blankSt(), pay = {};
-    for (const k of Object.keys(PAY)) pay[k] = { amt: 0, n: 0 };
-    let amount = 0, cal = 0;
-    const byDay = {}, byMember = {}, byStreet = new Map(), byZone = {}, byCom = {};
-    const day = (k) => (byDay[k] ||= { amount: 0, doors: 0, cal: 0 });
-    const mem = (id) => (byMember[id] ||= { doors: 0, amount: 0, cal: 0, streets: new Map(), last: 0 });
-    const grp = () => ({ total: 0, visited: 0, amount: 0, st: blankSt(), members: new Set() });
+    const st = blankSt(), byDay = {}, byMember = {}, byStreet = new Map(), byZone = {}, byCom = {};
+    const mem = (id) => (byMember[id] ||= { doors: 0, streets: new Map(), last: 0 });
+    const grp = () => ({ total: 0, visited: 0, st: blankSt(), members: new Set() });
     for (const u of units()) {
       const a = u.a, p = s.passages[u.id], status = p?.status || 'todo';
       st[status]++;
@@ -303,26 +342,17 @@ function stats() {
       const bc = (byCom[a.com] ||= grp());
       const zid = zi.get(a.id), bz = zid ? (byZone[zid] ||= grp()) : null;
       for (const g of [bs, bc, bz]) if (g) { g.total++; g.st[status]++; if (status !== 'todo') g.visited++; }
-      if (!p) continue;
-      if (status === 'done') {
-        const amt = +p.amt || 0, c = +p.cal || 0;
-        amount += amt; cal += c;
-        for (const g of [bs, bc, bz]) if (g) g.amount += amt;
-        const pk = PAY[p.pay] ? p.pay : 'especes'; pay[pk].amt += amt; pay[pk].n++;
-        const d = day(isoDay(new Date(p.doneAt || p.at))); d.amount += amt; d.cal += c;
-        const by = p.by || [];
-        for (const m of by) { const bm = mem(m); bm.amount += amt / by.length; bm.cal += c / by.length; }
-      }
-      for (const h of p.hist || []) {
+      for (const h of p?.hist || []) {
         if (h.s === 'todo') continue;
-        day(isoDay(new Date(h.at))).doors++;
+        const d = isoDay(new Date(h.at));
+        byDay[d] = (byDay[d] || 0) + 1;
         for (const m of h.by || []) {
           const bm = mem(m); bm.doors++; bm.last = Math.max(bm.last, h.at); bs.members.add(m);
           const arr = bm.streets.get(a.sk) || []; if (!arr.includes(u)) arr.push(u); bm.streets.set(a.sk, arr);
         }
       }
     }
-    return { total: units().length, st, amount, cal, pay, byDay, byMember, byStreet, byZone, byCom };
+    return { total: units().length, visited: units().length - st.todo, st, byDay, byMember, byStreet, byZone, byCom };
   });
 }
 function repasses() {
@@ -353,23 +383,7 @@ function searchAddrs(q) {
   return out.sort((x, y) => x.ci - y.ci || sortKey(x.street).localeCompare(sortKey(y.street), 'fr')).slice(0, 40);
 }
 /** Ce que le binôme de ce téléphone a encaissé aujourd'hui : utile pour la remise au trésorier. */
-function myDay() {
-  const team = Me.team(); if (!team.length) return null;
-  const today = isoDay(), r = { doors: 0, cal: 0, amount: 0, pay: {} };
-  for (const k of Object.keys(PAY)) r.pay[k] = 0;
-  for (const u of units()) {
-    for (const h of Store.s.passages[u.id]?.hist || []) {
-      if (h.s === 'todo' || isoDay(new Date(h.at)) !== today) continue;
-      if (!(h.by || []).some((x) => team.includes(x))) continue;
-      r.doors++;
-      if (h.s !== 'done') continue;
-      const amt = +h.amt || 0;
-      r.amount += amt; r.cal += +h.cal || 0;
-      r.pay[PAY[h.pay] ? h.pay : 'especes'] += amt;
-    }
-  }
-  return r.doors ? r : null;
-}
+
 function events() {
   return memo('events', () => {
     const out = [];
@@ -381,24 +395,21 @@ function events() {
 // ═════════════════════════ Écriture des passages, immeubles, secteurs
 function savePassage(unitId, d) {
   const s = Store.s, u = unitIdx().get(unitId), prev = clone(s.passages[unitId] || null), now = Date.now();
-  const status = d.status, done = status === 'done';
+  const status = d.status;
   const by = d.by?.length ? [...d.by] : Me.team();
   const hist = [...(prev?.hist || [])];
-  const entry = { s: status, at: now, by, ...(done ? { amt: num(d.amt), cal: d.cal, pay: d.pay } : {}) };
+  const entry = { s: status, at: now, by };
   const last = hist[hist.length - 1];
-  if (last && last.s === status && now - last.at < 20 * 60000) hist[hist.length - 1] = entry; else if (status !== 'todo') hist.push(entry);
+  if (last && last.s === status && now - last.at < 20 * 60000) hist[hist.length - 1] = entry;
+  else if (status !== 'todo') hist.push(entry);
   let rp = null;
   if (status === 'repasse' || (status === 'absent' && d.rp?.date)) rp = { date: d.rp?.date || '', slot: d.rp?.slot || '', note: (d.rp?.note || '').trim(), done: false };
-  const rec = {
+  Store.put('passage', unitId, {
     status, at: now, by: status === 'todo' ? [] : by,
-    cal: done ? d.cal : 0, amt: done ? num(d.amt) : 0, pay: done ? d.pay : null,
-    chq: done && d.pay === 'cheque' ? (d.chq || '').trim() : '',
     name: (d.name || '').trim(), note: (d.note || '').trim(), rp,
-    doneAt: done ? (prev?.status === 'done' && prev.doneAt ? prev.doneAt : now) : null,
     hist: hist.slice(-20),
     _l: u ? { com: u.a.com, rue: u.a.street, num: u.a.num, lg: u.n > 1 ? u.label : '' } : prev?._l,
-  };
-  Store.put('passage', unitId, rec);
+  });
   return prev;
 }
 function restorePassage(id, prev) { Store.put('passage', id, prev ? { ...prev } : { status: 'todo', at: Date.now(), by: [], hist: [] }); }
@@ -509,33 +520,31 @@ function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t 
 function makeDemo() {
   const rnd = mulberry32(1926), pick = (arr) => arr[Math.floor(rnd() * arr.length)];
   const s = EMPTY();
-  s.settings = { name: 'Calendriers 2027', year: 2027, goal: 15000, price: 10, u: 1 };
-  const ids = ['Thomas K.', 'Julie W.', 'Nicolas B.', 'Léa S.', 'Marc H.', 'Camille F.', 'Hugo R.', 'Inès D.', 'Paul G.', 'Chloé M.'].map((n, i) => { const id = 'demo-m' + i; s.members[id] = { id, name: n, color: PALETTE[i], u: 1 }; return id; });
+  s.settings = { name: 'Calendriers 2027', year: 2027, code: '1926', u: 1 };
+  const noms = ['Thomas K.', 'Julie W.', 'Nicolas B.', 'Léa S.', 'Marc H.', 'Camille F.', 'Hugo R.', 'Inès D.', 'Paul G.', 'Chloé M.', 'Yann P.', 'Sarah L.'];
+  const ids = noms.map((n, i) => { const id = 'demo-m' + i; s.members[id] = { id, name: n, color: PALETTE[i % PALETTE.length], u: 1 }; return id; });
   BASE_ADDRS.forEach((a, i) => { if ((a.com === 'Seppois-le-Bas' || a.com === 'Pfetterhouse') && i % 31 === 7) s.bld[a.id] = { id: a.id, n: 2 + (i % 5), labels: [], u: 1 }; });
   const now = Date.now(), today = isoDay(), days = [];
   for (let k = 16; k >= 0; k--) { const iso = addDays(today, -k); const dw = new Date(iso + 'T12:00:00').getDay(); if (dw === 0 || dw === 6 || dw === 3 || k === 0) days.push(iso); }
   const prog = [0.78, 0.55, 0.32, 0.62, 0.15];
   COMMUNES.forEach((com, zi) => {
-    const id = 'demo-z' + zi, team = [ids[zi * 2], ids[zi * 2 + 1]];
+    const id = 'demo-z' + zi;
+    const team = zi % 2 ? [ids[zi * 2], ids[zi * 2 + 1], ids[(zi * 2 + 7) % ids.length]] : [ids[zi * 2], ids[zi * 2 + 1]];
     const list = BASE_ADDRS.filter((a) => a.com === com).sort((a, b) => sortKey(a.street).localeCompare(sortKey(b.street)) || numCmp(a, b));
     s.zones[id] = { id, name: com, color: ZONE_COLORS[zi], addrs: list.map((a) => a.id), members: team, order: zi, u: 1 + zi };
-    const us = list.flatMap((a) => { const n = s.bld[a.id]?.n || 1; return Array.from({ length: n }, (_, k) => ({ id: k ? `${a.id}~${k + 1}` : a.id, a, k: k + 1, n })); });
+    const us = list.flatMap((a) => { const n = s.bld[a.id]?.n || 1; return Array.from({ length: n }, (_, k) => ({ id: k ? `${a.id}~${k + 1}` : a.id, a })); });
     const nV = Math.round(us.length * prog[zi]);
     for (let k = 0; k < nV; k++) {
       const u = us[k], iso = days[Math.min(days.length - 1, Math.floor((k / nV) * days.length))];
       const at = new Date(iso + 'T00:00:00').getTime() + (570 + Math.floor(rnd() * 540)) * 60000;
       if (at > now) continue;
-      const r = rnd(), status = r < 0.71 ? 'done' : r < 0.85 ? 'absent' : r < 0.93 ? 'repasse' : 'refus';
-      const by = rnd() < 0.85 ? team : [team[Math.floor(rnd() * 2)]];
+      const r = rnd(), status = r < 0.74 ? 'done' : r < 0.87 ? 'absent' : r < 0.94 ? 'repasse' : 'refus';
+      const by = rnd() < 0.85 ? team : [team[Math.floor(rnd() * team.length)]];
       const hist = [];
       if (status === 'done' && rnd() < 0.18) hist.push({ s: 'absent', at: at - 2 * 86400000, by });
-      const p = { status, at, by, cal: 0, amt: 0, pay: null, chq: '', name: '', note: '', rp: null, doneAt: null, hist, u: at };
-      if (status === 'done') {
-        p.cal = rnd() < 0.86 ? 1 : 2; p.amt = p.cal * pick([5, 8, 10, 10, 10, 10, 12, 15, 15, 20, 20, 25]);
-        const pr = rnd(); p.pay = pr < 0.55 ? 'especes' : pr < 0.76 ? 'cheque' : pr < 0.94 ? 'cb' : 'autre';
-        p.doneAt = at; hist.push({ s: 'done', at, by, amt: p.amt, cal: p.cal, pay: p.pay });
-      } else hist.push({ s: status, at, by });
-      if (status === 'repasse' || (status === 'absent' && rnd() < 0.5)) p.rp = { date: addDays(today, Math.floor(rnd() * 6) - 1), slot: pick(['matin', 'aprem', 'soir', 'soir']), note: pick(['', '', 'Revenir après 18 h', 'Sonner à la porte de derrière', 'Chien dans la cour', 'Demande un reçu']), done: false };
+      hist.push({ s: status, at, by });
+      const p = { status, at, by, name: '', note: '', rp: null, hist, u: at };
+      if (status === 'repasse' || (status === 'absent' && rnd() < 0.5)) p.rp = { date: addDays(today, Math.floor(rnd() * 6) - 1), slot: pick(['matin', 'aprem', 'soir', 'soir']), note: pick(['', '', 'Revenir après 18 h', 'Sonner à la porte de derrière', 'Chien dans la cour', 'Repasser le week-end']), done: false };
       if (status === 'refus' && rnd() < 0.4) p.note = 'Ne souhaite pas être sollicité';
       s.passages[u.id] = p;
     }
@@ -642,105 +651,117 @@ function renderHeader() {
   const today = isoDay(), due = repasses().filter((r) => r.date && r.date <= today).length;
   const b = $('#rep-badge'); b.hidden = !due; b.textContent = due;
   $$('.tabs > button').forEach((x) => (x.dataset.v === UI.view ? x.setAttribute('aria-current', 'page') : x.removeAttribute('aria-current')));
+  const tTab = $('.tabs > button[data-v="team"] span');
+  if (tTab) tTab.textContent = Role.admin ? 'Répartition' : 'Mon équipe';
 }
 
 // ═════════════════════════ Accueil
 function renderHome() {
-  const el = $('#v-home'), s = Store.s, S = stats(), set = s.settings;
-  const goal = +set.goal || 0, visited = S.total - S.st.todo, avg = S.cal ? S.amount / S.cal : 0;
-  const now = new Date(), today = isoDay(), T = S.byDay[today] || { amount: 0, doors: 0 };
+  const el = $('#v-home'), S = stats(), set = Store.s.settings;
+  const now = new Date(), today = isoDay();
   const due = repasses().filter((r) => r.date && r.date <= today);
   const days = []; for (let k = 13; k >= 0; k--) days.push(addDays(today, -k));
-  const maxD = Math.max(0, ...days.map((d) => S.byDay[d]?.amount || 0));
-  const zs = zones(), miss = zs.length ? unassigned().length : 0;
+  const maxD = Math.max(0, ...days.map((d) => S.byDay[d] || 0));
+  const zs = zones(), miss = unassigned().length;
+  const mine = myZones(), mp = mine.length ? zonesProgress(mine) : null;
+  const myStreets = mine.length ? zonesStreets(mine) : [];
   const ranked = members().map((m) => [m, S.byMember[m.id]]).filter(([, b]) => b?.doors).sort((a, b) => b[1].doors - a[1].doors).slice(0, 5);
-  const recent = events().slice(0, 6);
   const tourSt = UI.tour.street && streetOf(UI.tour.street);
+  const hero = mp || S, heroLbl = mp ? 'Mes rues' : 'Avancement';
   el.innerHTML = `<div class="view-in"><div class="home-grid">
   <div class="home-col">
-    <section class="hero" aria-label="Collecte">
+    <section class="hero" aria-label="Avancement">
       <div class="hero-chief">
         <div class="rings" aria-hidden="true"><i></i><i></i><i></i></div>
-        <div class="hero-eyebrow">Collecté · ${esc(set.name || 'Campagne')}</div>
-        <div class="hero-amt">${eur(S.amount)}</div>
-        ${goal ? `<div class="goal-bar"><i style="width:${clamp(pct(S.amount, goal), 0, 100)}%"></i></div><div class="goal-lbl"><span>${pct(S.amount, goal)} % de l'objectif</span><span>${eur(goal)}</span></div>` : `<div class="goal-lbl"><button class="link" style="color:#fff" data-act="page" data-v="settings">Fixer un objectif</button></div>`}
+        <div class="hero-eyebrow">${heroLbl} · ${esc(set.name || 'Campagne')}</div>
+        <div class="hero-amt">${pct(hero.visited, hero.total)}&nbsp;%</div>
+        <div class="goal-bar"><i style="width:${clamp(pct(hero.visited, hero.total), 0, 100)}%"></i></div>
+        <div class="goal-lbl"><span>${nf(hero.visited)} foyers faits</span><span>${nf(hero.total - hero.visited)} restants</span></div>
       </div>
       <div class="hero-field">
-        <div class="shield"><b>${nf(S.cal)}</b><span>calendriers</span></div>
-        <div class="shield"><b>${pct(visited, S.total)}&nbsp;%</b><span>foyers visités</span></div>
-        <div class="shield"><b>${avg ? eur(Math.round(avg * 10) / 10) : '—'}</b><span>par calendrier</span></div>
+        <div class="shield"><b>${nf(hero.st.done)}</b><span>donnés</span></div>
+        <div class="shield"><b>${nf(hero.st.todo)}</b><span>à faire</span></div>
+        <div class="shield"><b>${nf(hero.st.absent + hero.st.repasse)}</b><span>à revoir</span></div>
       </div>
     </section>
+    <button class="btn red block big-cta" data-act="go" data-v="tour">${ico('door')} ${tourSt ? `Reprendre · ${esc(tourSt.name)}` : 'Commencer la tournée'}</button>
+    ${mine.length ? `<section class="card">
+      <div class="card-h"><h2>Mes rues</h2><span class="muted">${esc(mine.map((z) => z.name).join(', '))}</span></div>
+      ${myStreets.slice(0, 6).map((st) => streetMini(st)).join('')}
+      ${myStreets.length > 6 ? `<button class="link" data-act="go" data-v="team">Voir mes ${myStreets.length} rues</button>` : ''}
+    </section>` : Me.team().length ? `<section class="card"><div class="empty"><b>Aucune rue attribuée</b>Le responsable n’a pas encore confié de rues à votre équipe.</div></section>`
+      : `<section class="card"><div class="empty"><b>Qui êtes-vous ?</b>Choisissez votre prénom et celui des personnes avec vous.<button class="btn" data-act="me-sheet">Choisir</button></div></section>`}
     <section class="card">
-      <div class="card-h"><h2>${nf(S.total)} foyers</h2><span class="muted">${nf(visited)} visités · ${COMMUNES.length} communes</span></div>
+      <div class="card-h"><h2>Aujourd'hui</h2><span class="muted">${DOWL[now.getDay()]} ${now.getDate()} ${MON[now.getMonth()]}</span></div>
+      <div class="today">
+        <div class="kpi"><b>${S.byDay[today] || 0}</b><span>passages</span></div>
+        <div class="kpi"><b>${due.length}</b><span>repasses dues</span></div>
+        <div class="kpi"><b>${nf(S.st.todo)}</b><span>foyers restants</span></div>
+      </div>
+      ${due.length ? `<div class="mini-list">${due.slice(0, 4).map(repRow).join('')}</div>${due.length > 4 ? `<button class="link" data-act="go" data-v="rep">Voir les ${due.length} repasses</button>` : ''}` : ''}
+    </section>
+  </div>
+  <div class="home-col">
+    ${Role.admin ? `<section class="card">
+      <div class="card-h"><h2>Répartition</h2><button class="link" data-act="go" data-v="team">Gérer</button></div>
+      ${coverageBlock()}
+      ${zs.length ? zs.map((z) => zoneRow(z)).join('') : `<p class="muted" style="margin:0 0 12px">Créez les secteurs et confiez chacun à une équipe de 2 ou 3 personnes.</p><button class="btn block" data-act="go" data-v="team">${ico('sparkle')} Répartir les rues</button>`}
+    </section>` : ''}
+    <section class="card">
+      <div class="card-h"><h2>${nf(S.total)} foyers</h2><span class="muted">${COMMUNES.length} communes</span></div>
       ${stackBar(S.st, S.total)}
       <div class="st-grid">${ST_FILTER.map((k) => `<button class="st-cell" data-act="mapfilter" data-v="${k}"><span class="dot" data-st="${k}"></span><b>${nf(S.st[k])}</b><span>${STATUS[k].label} · ${pct(S.st[k], S.total)} %</span></button>`).join('')}</div>
     </section>
     <section class="card">
-      <div class="card-h"><h2>Aujourd'hui</h2><span class="muted">${DOWL[now.getDay()]} ${now.getDate()} ${MON[now.getMonth()]}</span></div>
-      <div class="today">
-        <div class="kpi"><b>${T.doors}</b><span>passages</span></div>
-        <div class="kpi"><b>${eur(T.amount)}</b><span>collectés</span></div>
-        <div class="kpi"><b>${due.length}</b><span>repasses dues</span></div>
-      </div>
-      ${due.length ? `<div class="mini-list">${due.slice(0, 4).map(repRow).join('')}</div>${due.length > 4 ? `<button class="link" data-act="go" data-v="rep">Voir les ${due.length} repasses</button>` : ''}` : ''}
-      <button class="btn red block" style="margin-top:14px" data-act="go" data-v="tour">${ico('door')} ${tourSt ? `Reprendre · ${esc(tourSt.name)}` : 'Commencer la tournée'}</button>
-    </section>
-    ${myDayCard()}
-    <section class="card">
-      <div class="card-h"><h2>Par commune</h2><span class="muted">foyers visités · collecté</span></div>
-      ${COMMUNES.map((c) => { const g = S.byCom[c] || { total: 0, visited: 0, amount: 0, st: blankSt() }; return `<button class="zone-row as-btn" data-act="com-go" data-v="${esc(c)}"><span class="zdot" style="--c:var(--ink-2)"></span><b>${esc(c)}</b><span class="meta">${pct(g.visited, g.total)} % · ${eur(g.amount)}</span>${stackBar(g.st, g.total, 'sm')}<span class="muted" style="grid-column:2/-1;font-size:12.5px">${nf(g.visited)} / ${nf(g.total)} foyers</span></button>`; }).join('')}
-    </section>
-  </div>
-  <div class="home-col">
-    <section class="card">
-      <div class="card-h"><h2>Règlements</h2><span class="muted">${S.st.done} dons</span></div>
-      <div class="hbars">${Object.keys(PAY).map((k) => `<div class="hbar" style="--c:${PAY_COLOR[k]}"><span class="t">${PAY[k]}</span><span class="v">${eur(S.pay[k].amt)}<small>${S.pay[k].n}</small></span><span class="track"><i style="width:${S.amount ? (S.pay[k].amt / S.amount) * 100 : 0}%"></i></span></div>`).join('')}</div>
+      <div class="card-h"><h2>Par commune</h2><span class="muted">foyers faits</span></div>
+      ${COMMUNES.map((c) => { const g = S.byCom[c] || { total: 0, visited: 0, st: blankSt() }; return `<button class="zone-row as-btn" data-act="com-go" data-v="${esc(c)}"><span class="zdot" style="--c:var(--ink-2)"></span><b>${esc(c)}</b><span class="meta">${pct(g.visited, g.total)} %</span>${stackBar(g.st, g.total, 'sm')}<span class="muted" style="grid-column:2/-1;font-size:12.5px">${nf(g.visited)} / ${nf(g.total)} foyers</span></button>`; }).join('')}
     </section>
     <section class="card">
-      <div class="card-h"><h2>14 derniers jours</h2><span class="muted">collecte par jour</span></div>
-      ${maxD ? `<div class="chart"><div class="gridline"><span>${eur(maxD)}</span></div><div class="bars">${days.map((d) => { const v = S.byDay[d]?.amount || 0; return `<i class="${d === today ? 'today' : ''}${v ? '' : ' zero'}" style="height:${v ? Math.max(3, (v / maxD) * 100) : 2}%" title="${dayLabel(d)} : ${eur(v)}"></i>`; }).join('')}</div><div class="bars-x">${days.map((d, i) => `<span>${i % 2 === 1 ? new Date(d + 'T12:00:00').getDate() : ''}</span>`).join('')}</div></div>` : '<div class="empty">Aucune collecte sur les 14 derniers jours.</div>'}
+      <div class="card-h"><h2>14 derniers jours</h2><span class="muted">passages par jour</span></div>
+      ${maxD ? `<div class="chart"><div class="gridline"><span>${maxD}</span></div><div class="bars">${days.map((d) => { const v = S.byDay[d] || 0; return `<i class="${d === today ? 'today' : ''}${v ? '' : ' zero'}" style="height:${v ? Math.max(3, (v / maxD) * 100) : 2}%" title="${dayLabel(d)} : ${v} passages"></i>`; }).join('')}</div><div class="bars-x">${days.map((d, i) => `<span>${i % 2 === 1 ? new Date(d + 'T12:00:00').getDate() : ''}</span>`).join('')}</div></div>` : '<div class="empty">Aucun passage sur les 14 derniers jours.</div>'}
     </section>
     <section class="card">
-      <div class="card-h"><h2>Secteurs</h2>${zs.length ? '<button class="link" data-act="page" data-v="settings" data-sec="zones">Gérer</button>' : ''}</div>
-      ${miss ? `<button class="alert-row" data-act="page" data-v="unassigned">${ico('flag', 'sm')}<span><b>${miss} adresse${miss > 1 ? 's' : ''} sans secteur</b><small>Touchez pour les répartir : aucune maison ne doit être oubliée.</small></span>${ico('chev-r', 'sm')}</button>` : ''}
-      ${zs.length ? zs.map((z) => { const bz = S.byZone[z.id] || { total: 0, visited: 0, amount: 0, st: blankSt() }; return `<button class="zone-row as-btn" data-act="zone-edit" data-v="${z.id}"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="meta">${pct(bz.visited, bz.total)} % · ${eur(bz.amount)}</span>${stackBar(bz.st, bz.total, 'sm')}<span class="muted" style="grid-column:2/-1;font-size:12.5px">${esc(names(z.members)) || 'Aucun binôme affecté'}</span></button>`; }).join('') : `<p class="muted" style="margin:0 0 12px">Répartissez les rues entre les binômes : par commune, par rue ou en entourant les maisons sur la carte.</p><button class="btn ghost block" data-act="page" data-v="settings" data-sec="zones">${ico('sparkle')} Créer les secteurs</button>`}
-    </section>
-    <section class="card">
-      <div class="card-h"><h2>Classement</h2><button class="link" data-act="go" data-v="team">Équipe</button></div>
+      <div class="card-h"><h2>Qui a fait quoi</h2><button class="link" data-act="go" data-v="team">Équipe</button></div>
       ${ranked.length ? ranked.map(([m, b], i) => rankRow(m, b, i)).join('') : '<p class="muted" style="margin:0">Personne n’a encore enregistré de passage.</p>'}
     </section>
     <section class="card">
       <div class="card-h"><h2>Derniers passages</h2><button class="link" data-act="history">Historique</button></div>
-      ${recent.length ? `<div class="mini-list" style="margin-top:0;border-top:0">${recent.map((e) => evRow(e)).join('')}</div>` : '<p class="muted" style="margin:0">Aucun passage enregistré pour l’instant.</p>'}
+      ${events().length ? `<div class="mini-list" style="margin-top:0;border-top:0">${events().slice(0, 6).map((e) => evRow(e)).join('')}</div>` : '<p class="muted" style="margin:0">Aucun passage enregistré pour l’instant.</p>'}
     </section>
   </div>
   </div></div>`;
 }
-function myDayCard() {
-  const d = myDay(); if (!d) return '';
-  const cash = d.pay.especes + d.pay.cheque;
-  return `<section class="card purse">
-    <div class="card-h"><h2>Ma caisse du jour</h2><span class="muted">${esc(names(Me.team()))}</span></div>
-    <div class="today">
-      <div class="kpi"><b>${eur(d.amount)}</b><span>encaissés</span></div>
-      <div class="kpi"><b>${nf(d.cal)}</b><span>calendriers</span></div>
-      <div class="kpi"><b>${d.doors}</b><span>passages</span></div>
-    </div>
-    <div class="hbars" style="margin-top:14px">${Object.keys(PAY).filter((k) => d.pay[k]).map((k) => `<div class="hbar" style="--c:${PAY_COLOR[k]}"><span class="t">${PAY[k]}</span><span class="v">${eur(d.pay[k])}</span><span class="track"><i style="width:${(d.pay[k] / d.amount) * 100}%"></i></span></div>`).join('') || '<p class="muted" style="margin:0">Aucun don encaissé pour l’instant.</p>'}</div>
-    ${cash ? `<div class="purse-note">${ico('euro', 'sm')}<span><b>${eur(cash)}</b> à remettre au trésorier : espèces et chèques que vous avez sur vous.</span></div>` : ''}
-  </section>`;
+/** Barre de couverture : toutes les adresses sont-elles confiées à une équipe ? */
+function coverageBlock() {
+  const miss = unassigned().length, tot = addrs().length;
+  if (!zones().length) return '';
+  return `<div class="coverage ${miss ? 'warn' : 'ok'}"><div class="cov-bar"><i style="width:${pct(tot - miss, tot)}%"></i></div>
+    <p>${miss ? `<b>${miss} adresse${miss > 1 ? 's' : ''} sans équipe</b> sur ${nf(tot)}.` : `<b>Toutes les rues sont attribuées.</b> ${nf(tot)} adresses.`}</p>
+    ${miss ? '<button class="btn sm" data-act="page" data-v="unassigned">Les répartir</button>' : ''}</div>`;
 }
+/** Une équipe et son secteur, en une ligne. */
+function zoneRow(z) {
+  const g = stats().byZone[z.id] || { total: 0, visited: 0, st: blankSt() };
+  const nStreets = zonesStreets([z]).length;
+  return `<button class="zone-row as-btn" data-act="zone-edit" data-v="${z.id}"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="meta">${pct(g.visited, g.total)} %</span>${stackBar(g.st, g.total, 'sm')}<span class="zone-team" style="grid-column:2/-1">${(z.members || []).length ? avatars(z.members, 4, 'sm') + ' ' + esc(names(z.members)) : '<i class="todo">Aucune équipe</i>'} · ${nStreets} rues · ${nf(g.total)} foyers</span></button>`;
+}
+/** Une rue dans « mes rues » : ce qu'il reste à y faire. */
+function streetMini(st) {
+  const r = stats().byStreet.get(st.sk), o = openOf(st);
+  const quoi = !o ? 'rue terminée' : r.st.todo ? `${r.st.todo} foyer${r.st.todo > 1 ? 's' : ''} à faire${o > r.st.todo ? ` · ${o - r.st.todo} à revoir` : ''}` : `${o} à revoir`;
+  return `<button class="mini-row" data-act="tour-start" data-v="${esc(st.sk)}"><span class="grow"><b>${esc(st.name)}</b><small>${quoi}</small></span><span class="when">${r.visited}/${r.total}</span>${ico('chev-r', 'sm')}</button>`;
+}
+
 function repRow(r) {
   const late = r.date < isoDay();
   return `<button class="mini-row" data-act="unit" data-id="${r.u.id}"><span class="when" style="${late ? 'color:var(--st-refus)' : ''}">${late ? 'Retard' : SLOT_SHORT[r.slot] || '—'}</span><span class="dot" data-st="${r.p.status}"></span><span class="grow"><b>${esc(unitTitle(r.u))}</b><small>${esc([r.a.com, r.p.rp?.note || STATUS[r.p.status].label].join(' · '))}</small></span>${ico('chev-r', 'sm')}</button>`;
 }
 function evRow({ u, h }, timeOnly = false) {
-  return `<button class="mini-row" data-act="unit" data-id="${u.id}"><span class="when">${timeOnly ? hhmm(h.at) : dayShort(h.at)}</span><span class="dot" data-st="${h.s}"></span><span class="grow"><b>${esc(unitTitle(u))}</b><small>${STATUS[h.s].label} · ${esc(u.a.com)}${h.by?.length ? ' · ' + esc(names(h.by)) : ''}</small></span>${h.s === 'done' ? `<span class="amt">${eur(h.amt)}</span>` : ''}</button>`;
+  return `<button class="mini-row" data-act="unit" data-id="${u.id}"><span class="when">${timeOnly ? hhmm(h.at) : dayShort(h.at)}</span><span class="dot" data-st="${h.s}"></span><span class="grow"><b>${esc(unitTitle(u))}</b><small>${STATUS[h.s].label} · ${esc(u.a.com)}${h.by?.length ? ' · ' + esc(names(h.by)) : ''}</small></span></button>`;
 }
 function rankRow(m, b, i) {
   const zn = zones().filter((z) => (z.members || []).includes(m.id)).map((z) => z.name);
-  return `<button class="rank" data-act="member" data-v="${m.id}"><span class="pos">${i + 1}</span>${avatar(m.id)}<span class="nm"><b>${esc(m.name)}</b><small>${b?.streets.size || 0} rues · ${esc(zn.join(', ') || 'sans secteur')}</small></span><span class="vals"><b>${b?.doors || 0}</b><small>${eur(Math.round(b?.amount || 0))}</small></span></button>`;
+  return `<button class="rank" data-act="member" data-v="${m.id}"><span class="pos">${i + 1}</span>${avatar(m.id)}<span class="nm"><b>${esc(m.name)}</b><small>${b?.streets.size || 0} rues · ${esc(zn.join(', ') || 'sans secteur')}</small></span><span class="vals"><b>${b?.doors || 0}</b><small>foyers</small></span></button>`;
 }
 
 // ═════════════════════════ Carte & rues
@@ -803,7 +824,7 @@ function streetRows() {
   const card = (st) => {
     const r = g(st);
     const info = [r.st.todo ? `${r.st.todo} à faire` : 'Rue terminée', r.st.repasse ? `${r.st.repasse} à repasser` : '', r.st.absent ? `${r.st.absent} absents` : ''].filter(Boolean).join(' · ');
-    return `<button class="street-row" data-act="street" data-v="${esc(st.sk)}"><div class="sr-top"><b>${esc(st.name)}</b><span>${r.visited}/${r.total}</span></div>${stackBar(r.st, r.total, 'sm')}<div class="sr-foot"><span class="grow">${info}</span>${r.members.size ? avatars([...r.members]) : ''}${r.amount ? `<b class="tnum" style="color:var(--ink)">${eur(r.amount)}</b>` : ''}</div></button>`;
+    return `<button class="street-row" data-act="street" data-v="${esc(st.sk)}"><div class="sr-top"><b>${esc(st.name)}</b><span>${r.visited}/${r.total}</span></div>${stackBar(r.st, r.total, 'sm')}<div class="sr-foot"><span class="grow">${info}</span>${r.members.size ? avatars([...r.members]) : ''}</div></button>`;
   };
   if (UI.sort !== 'alpha' || UI.com) return `<div class="street-list">${rows.map(card).join('')}</div>`;
   return COMMUNES.map((c) => { const list = rows.filter((st) => st.com === c); return list.length ? `<h3 class="com-h">${esc(c)} <small>${list.length} rues</small></h3><div class="street-list">${list.map(card).join('')}</div>` : ''; }).join('');
@@ -825,8 +846,8 @@ function streetDetail(sk) {
   <p class="muted" style="margin:-6px 0 0;font-weight:600">${esc(st.com)} · ${st.addrs.length} adresses · ${r.total} foyers${z.length ? ' · ' + esc(z.join(', ')) : ' · sans secteur'}</p>
   <div class="kpis">
     <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${r.total} foyers</span></div>
-    <div class="kpi"><b>${eur(r.amount)}</b><span>collectés</span></div>
-    <div class="kpi"><b>${r.st.done}</b><span>foyers donateurs</span></div>
+    <div class="kpi"><b>${r.st.done}</b><span>calendriers donnés</span></div>
+    <div class="kpi"><b>${r.st.refus}</b><span>refus</span></div>
     <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>absents · repasses</span></div>
   </div>
   ${stackBar(r.st, r.total)}
@@ -842,7 +863,7 @@ function streetDetail(sk) {
 }
 
 // ═════════════════════════ Tournée (porte-à-porte)
-const freshTD = (id) => ({ id, mode: null, status: null, cal: 1, amt: null, pay: 'especes', rpDate: '', rpSlot: '', rpNote: '' });
+const freshTD = (id) => ({ id, mode: null, status: null, rpDate: '', rpSlot: '', rpNote: '' });
 let TD = freshTD(null);
 function tourList() {
   const T = UI.tour;
@@ -873,10 +894,9 @@ const tourScrollTop = () => requestAnimationFrame(() => { const v = $('#v-tour')
 function tourSave(status, extra = {}) {
   const id = UI.tour.cur; if (!id) return;
   const p = Store.s.passages[id], u = unitIdx().get(id), team = Me.team();
-  const d = { status, cal: extra.cal ?? 1, amt: extra.amt ?? 0, pay: extra.pay || 'especes', chq: '', name: p?.name || '', note: p?.note || '', rp: extra.rp || null, by: team.length ? team : p?.by || [] };
-  const prev = savePassage(id, d);
+  const prev = savePassage(id, { status, name: p?.name || '', note: p?.note || '', rp: extra.rp || null, by: team.length ? team : p?.by || [] });
   vibrate(18);
-  toast(`${unitTitle(u)} · ${STATUS[status].short}${status === 'done' ? ' · ' + eur(num(d.amt)) : ''}${team.length ? '' : ' · sans nom'}`, {
+  toast(`${unitTitle(u)} · ${STATUS[status].short}${team.length ? '' : ' · sans nom'}`, {
     undo: () => { restorePassage(id, prev); UI.tour.cur = id; TD = freshTD(id); saveUI(); App.changed(); },
   });
   tourNext(1); App.changed(); tourScrollTop();
@@ -899,7 +919,7 @@ function renderTour() {
   const S = stats(), st = T.near ? null : streetOf(T.street), r = st ? S.byStreet.get(st.sk) : null;
   const remaining = full.filter((u) => OPEN.has(statusOf(u.id)));
   const head = `<div class="tour-top"><button class="chip" data-act="tour-pick">${ico('chev-l', 'sm')} ${T.near ? 'Autour de moi' : 'Changer de rue'}</button>${tourTeamLine()}</div>
-    ${r ? `<div class="plaque street">${esc(st.name)}</div><div class="sr-top tour-stats"><span class="muted">${esc(st.com)} · <b>${r.visited}/${r.total}</b> foyers · ${remaining.length} à faire ou revoir</span><span class="amt">${eur(r.amount)}</span></div>${stackBar(r.st, r.total)}` : ''}`;
+    ${r ? `<div class="plaque street">${esc(st.name)}</div><div class="sr-top tour-stats"><span class="muted">${esc(st.com)} · <b>${r.visited}/${r.total}</b> foyers · ${remaining.length} à faire ou revoir</span><span class="amt">${r.st.done}&nbsp;donnés</span></div>${stackBar(r.st, r.total)}` : ''}`;
   if (!cur || (T.open && !remaining.length && !OPEN.has(statusOf(cur.id)) && TD.mode == null && !T.near)) {
     const team = Me.team(), zi = zoneIndex();
     const mine = zones().filter((z) => (z.members || []).some((m) => team.includes(m)));
@@ -927,7 +947,7 @@ function renderTour() {
           <button class="link" data-act="tour-bld" style="font-size:13.5px">${cur.n > 1 ? `Immeuble · ${cur.n} logements` : 'Plusieurs logements ?'}</button>
         </div>
       </div>
-      ${TD.mode === 'done' ? tourDoneForm() : TD.mode === 'later' ? tourLaterForm() : tourActs()}
+      ${TD.mode === 'later' ? tourLaterForm() : tourActs()}
     </article>
     <div class="tour-nav">
       <button class="btn ghost" data-act="tour-prev">${ico('chev-l')} Précédente</button>
@@ -944,23 +964,13 @@ function renderTour() {
 }
 function tourActs() {
   return `<div class="acts">
-    <button class="act big" data-st="done" data-act="td-mode" data-v="done">${ico('check')} Calendrier donné</button>
+    <button class="act big" data-st="done" data-act="td-done">${ico('check')} Calendrier donné</button>
     <button class="act" data-st="absent" data-act="td-later" data-v="absent">${ico('absent')}Absent</button>
     <button class="act" data-st="repasse" data-act="td-later" data-v="repasse">${ico('repeat')}À repasser</button>
     <button class="act" data-st="refus" data-act="td-refus">${ico('ban')}Refus</button>
   </div>`;
 }
-function tourDoneForm() {
-  const price = +Store.s.settings.price || 0;
-  return `<div class="quick">
-    <div class="row"><span class="lbl">Calendriers remis</span><div class="stepper" style="min-width:150px"><button data-act="td-cal" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${TD.cal}</b><button data-act="td-cal" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
-    <div class="lbl">Montant du don${price ? ` · conseillé ${eur(price * TD.cal)}` : ''}</div>
-    <div class="amt-grid">${AMOUNTS.map((v) => `<button data-act="td-amt" data-v="${v}" aria-pressed="${TD.amt === v}">${v} €</button>`).join('')}<div class="money"><input id="td-amt" class="input" inputmode="decimal" placeholder="Autre" aria-label="Autre montant" value="${TD.amt != null && !AMOUNTS.includes(TD.amt) ? TD.amt : ''}"><span>€</span></div></div>
-    <div class="lbl">Règlement</div>
-    <div class="chips wrap">${Object.entries(PAY).map(([k, l]) => `<button class="chip" data-act="td-pay" data-v="${k}" aria-pressed="${TD.pay === k}">${l}</button>`).join('')}</div>
-    <div class="grid2"><button class="btn ghost" data-act="td-mode" data-v="">Annuler</button><button class="btn green" id="td-ok" data-act="td-save-done" ${TD.amt == null ? 'disabled' : ''}>${ico('check')} ${TD.amt != null ? 'Valider ' + eur(TD.amt) : 'Choisir un montant'}</button></div>
-  </div>`;
-}
+
 function tourLaterForm() {
   const abs = TD.status === 'absent';
   return `<div class="quick">
@@ -1012,24 +1022,98 @@ function renderRep() {
 function memberChips(act, selected, exclude = '') {
   return members().filter((m) => m.id !== exclude).map((m) => `<button class="chip mchip" data-act="${act}" data-v="${m.id}" aria-pressed="${selected.includes(m.id)}">${avatar(m.id, 'sm')} ${esc(m.name)}</button>`).join('');
 }
-function addMemberForm() {
-  return `<form class="street-tools" data-form="add-member"><input class="input" name="mname" placeholder="Prénom et initiale (ex. Thomas K.)" autocomplete="off" aria-label="Nom du membre" required><button class="btn" type="submit">${ico('plus')} Ajouter</button></form>`;
+/** Texte à coller dans le groupe de l'amicale : qui fait quelles rues. */
+function shareText() {
+  const S = stats();
+  const l = [`${Store.s.settings.name || 'Calendriers'} — répartition`, ''];
+  for (const z of zones()) {
+    const g = S.byZone[z.id] || { total: 0 };
+    l.push(`${z.name} — ${names(z.members) || 'équipe à désigner'} (${nf(g.total)} foyers)`);
+    const byCom = new Map();
+    for (const st of zonesStreets([z])) { if (!byCom.has(st.com)) byCom.set(st.com, []); byCom.get(st.com).push(st.name); }
+    for (const [com, list] of byCom) l.push(`  ${com} : ${list.join(', ')}`);
+    l.push('');
+  }
+  const miss = unassigned();
+  if (miss.length) {
+    const sks = [...new Set(miss.map((a) => a.sk))].map((sk) => streetOf(sk)).filter(Boolean);
+    l.push(`Sans équipe : ${sks.map((x) => `${x.name} (${x.com})`).join(', ')}`, '');
+  }
+  return l.join('\n').trim();
 }
-function renderTeam() {
-  const el = $('#v-team'), ms = members(), S = stats(), v = Me.get();
-  if (!ms.length) { el.innerHTML = `<div class="view-in"><h2 class="display">Équipe</h2><section class="card"><div class="empty"><b>Aucun membre</b>Ajoutez les pompiers qui participent à la tournée.</div>${addMemberForm()}</section></div>`; return; }
-  const ranked = [...ms].sort((a, b) => (S.byMember[b.id]?.doors || 0) - (S.byMember[a.id]?.doors || 0) || a.name.localeCompare(b.name, 'fr'));
+function addMemberForm() {
+  return `<form class="street-tools stack-sm" data-form="add-member"><textarea class="input" name="mname" rows="2" placeholder="Thomas K.&#10;Julie W." autocomplete="off" aria-label="Prénoms à ajouter" required></textarea><button class="btn" type="submit">${ico('plus')} Ajouter</button></form>`;
+}
+function renderTeam() { Role.admin ? renderAdmin() : renderMyTeam(); }
+
+/** Accès responsable : répartir les rues entre les équipes. */
+function renderAdmin() {
+  const el = $('#v-team'), zs = zones(), ms = members(), S = stats();
+  const unassignedMembers = ms.filter((m) => !zs.some((z) => (z.members || []).includes(m.id)));
   el.innerHTML = `<div class="view-in">
-    <h2 class="display">Équipe</h2>
-    <section class="card me-card">
-      <div class="lbl">Sur ce téléphone, c'est</div>
-      <div class="chips wrap">${memberChips('me-set', [v.me])}</div>
-      <div class="lbl" style="margin-top:16px">En binôme avec</div>
-      <div class="chips wrap"><button class="chip" data-act="partner-set" data-v="" aria-pressed="${!v.partner}">Seul</button>${memberChips('partner-set', [v.partner], v.me)}</div>
+    <div class="tour-top"><h2 class="display">Répartition</h2><span class="role-pill">${ico('gear', 'sm')} Responsable</span></div>
+    <section class="card">
+      <div class="card-h"><h2>Couverture</h2><span class="muted">${zs.length} secteur${zs.length > 1 ? 's' : ''}</span></div>
+      ${zs.length ? coverageBlock() : '<p class="muted" style="margin:0 0 12px">Un secteur, c’est un paquet de rues confié à une équipe de 2 ou 3 personnes.</p>'}
+      <div class="grid2">
+        <button class="btn" data-act="zone-new">${ico('plus')} Nouveau secteur</button>
+        <button class="btn ghost" data-act="draw-start">${ico('pen')} Sur la carte</button>
+      </div>
+      <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!UI.auto}">${ico('sparkle')} Répartition automatique</button>
+      ${UI.auto ? `<div class="quick" style="margin-top:14px">
+        <button class="btn block" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button>
+        <div class="note-box">Ou un découpage équilibré : les rues restent entières et chaque équipe reçoit à peu près le même nombre de foyers.</div>
+        <div class="set-row" style="border:0"><div class="t"><b>Nombre de secteurs</b><small>≈ ${nf(Math.round(S.total / (UI.autoN || 6)))} foyers chacun</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${UI.autoN || 6}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
+        <button class="btn ghost block" data-act="auto-go">${zs.length ? `Remplacer les ${zs.length} secteurs` : 'Créer les secteurs'}</button>
+      </div>` : ''}
     </section>
-    <section class="card"><div class="card-h"><h2>Classement</h2><span class="muted">passages · collecté</span></div>${ranked.map((m, i) => rankRow(m, S.byMember[m.id], i)).join('')}</section>
-    <section class="card"><div class="card-h"><h2>Ajouter un membre</h2></div>${addMemberForm()}</section>
+    ${zs.length ? `<section class="card">
+      <div class="card-h"><h2>Secteurs et équipes</h2><button class="link" data-act="share-assign">Partager</button></div>
+      ${zs.map((z) => zoneRow(z)).join('')}
+    </section>` : ''}
+    <section class="card">
+      <div class="card-h"><h2>Les pompiers</h2><span class="muted">${ms.length}</span></div>
+      ${ms.length ? `<div class="chips wrap">${ms.map((m) => { const z = zs.find((x) => (x.members || []).includes(m.id)); return `<button class="chip mchip" data-act="member" data-v="${m.id}">${avatar(m.id, 'sm')} ${esc(m.name)}${z ? `<small>${esc(z.name)}</small>` : ''}</button>`; }).join('')}</div>` : '<div class="empty"><b>Aucun pompier</b>Ajoutez ceux qui participent à la tournée.</div>'}
+      ${unassignedMembers.length && zs.length ? `<p class="muted" style="margin:12px 0 0;font-size:13px">Sans secteur : ${esc(unassignedMembers.map((m) => m.name).join(', '))}.</p>` : ''}
+      <div style="margin-top:14px">${addMemberForm()}</div>
+      <p class="muted" style="margin:10px 0 0;font-size:13px">Collez plusieurs prénoms d’un coup, un par ligne.</p>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Sur ce téléphone</h2></div>
+      ${meBlock()}
+      <button class="link" data-act="leave-admin" style="margin-top:14px">Quitter l’accès responsable</button>
+    </section>
   </div>`;
+}
+
+/** Accès distributeur : qui je suis, et mes rues. */
+function renderMyTeam() {
+  const el = $('#v-team'), mine = myZones(), sts = mine.length ? zonesStreets(mine) : [];
+  const byCom = new Map();
+  for (const st of sts) { if (!byCom.has(st.com)) byCom.set(st.com, []); byCom.get(st.com).push(st); }
+  el.innerHTML = `<div class="view-in">
+    <h2 class="display">Mon équipe</h2>
+    <section class="card">${meBlock()}</section>
+    ${mine.length ? `<section class="card">
+      <div class="card-h"><h2>Mes rues</h2><span class="muted">${sts.length} rues · ${esc(mine.map((z) => z.name).join(', '))}</span></div>
+      ${[...byCom].map(([com, list]) => `<h3 class="com-h">${esc(com)} <small>${list.length}</small></h3><div class="mini-list">${list.map((st) => streetMini(st)).join('')}</div>`).join('')}
+    </section>` : `<section class="card"><div class="empty"><b>Aucune rue attribuée</b>${Me.team().length ? 'Le responsable n’a pas encore confié de rues à votre équipe.' : 'Choisissez d’abord qui est sur ce téléphone.'}</div></section>`}
+    <section class="card">
+      <div class="card-h"><h2>Responsable</h2></div>
+      <p class="muted" style="margin:0 0 12px">Vous répartissez les rues entre les équipes ? Entrez le code du responsable.</p>
+      <form class="street-tools" data-form="admin-code"><input class="input" name="code" inputmode="numeric" autocomplete="off" placeholder="Code à 4 chiffres" aria-label="Code responsable" required><button class="btn" type="submit">Entrer</button></form>
+    </section>
+  </div>`;
+}
+
+/** Choix des personnes présentes sur ce téléphone (1 à 4, le plus souvent 2 ou 3). */
+function meBlock() {
+  const t = Me.team(), ms = members();
+  if (!ms.length) return '<div class="empty"><b>Pas encore de pompiers</b>Le responsable doit d’abord créer la liste.</div>';
+  return `<div class="lbl">Qui fait la tournée avec ce téléphone ?</div>
+    <p class="muted" style="margin:6px 0 12px;font-size:13.5px">Touchez votre prénom et celui des personnes avec vous. Chaque porte notée sera à vos noms.</p>
+    <div class="chips wrap">${ms.map((m) => `<button class="chip mchip" data-act="me-toggle" data-v="${m.id}" aria-pressed="${t.includes(m.id)}">${avatar(m.id, 'sm')} ${esc(m.name)}</button>`).join('')}</div>
+    <div class="me-now">${t.length ? `${avatars(t, 4, 'sm')} <b>${esc(names(t))}</b>` : '<span class="muted">Personne de choisi : les passages ne seront attribués à personne.</span>'}</div>`;
 }
 
 // ═════════════════════════ Feuilles (bottom sheets)
@@ -1072,18 +1156,18 @@ function openStreetSheet(sk) {
       ${stackBar(r.st, r.total)}
       <div class="kpis">
         <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${r.total} foyers</span></div>
-        <div class="kpi"><b>${eur(r.amount)}</b><span>collectés</span></div>
+        <div class="kpi"><b>${r.st.done}</b><span>donnés</span></div>
         <div class="kpi"><b>${r.st.todo}</b><span>à faire</span></div>
         <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>absents · repasses</span></div>
       </div>
-      <div class="field"><label for="st-zone">Secteur de toute la rue</label>
+      ${Role.admin ? `<div class="field"><label for="st-zone">Secteur de toute la rue</label>
         <select id="st-zone" class="input" data-change="street-zone" data-sk="${esc(SS.sk)}">
           <option value="">${zs.length ? '— Sans secteur —' : 'Aucun secteur créé'}</option>
           ${zs.map((z) => `<option value="${z.id}" ${only === z.id ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}
         </select>
         <small class="muted">${inZ.size > 1 ? `Partagée entre ${inZ.size} secteurs : choisir en range ${st2.addrs.length > 1 ? 'toutes les adresses' : "l'adresse"} dans un seul.` : 'Toutes les adresses de la rue suivront ce choix.'}</small>
-      </div>
-      ${zs.length ? '' : `<button class="btn ghost block" data-act="street-newzone" data-v="${esc(SS.sk)}">${ico('plus')} Créer un secteur avec cette rue</button>`}
+      </div>` : (only && Store.s.zones[only] ? `<div class="note-box">Équipe : <b>${esc(names(Store.s.zones[only].members)) || 'à désigner'}</b> · secteur ${esc(Store.s.zones[only].name)}</div>` : '')}
+      ${Role.admin && !zs.length ? `<button class="btn ghost block" data-act="street-newzone" data-v="${esc(SS.sk)}">${ico('plus')} Créer un secteur avec cette rue</button>` : ''}
       <div class="grid2">
         <button class="btn ghost" data-act="street-houses" data-v="${esc(SS.sk)}">${ico('grid')} Les maisons</button>
         <button class="btn ghost" data-act="street-zoom" data-v="${esc(SS.sk)}">${ico('expand')} Cadrer</button>
@@ -1118,7 +1202,6 @@ function openUnit(unitId, opts = {}) {
   AS = {
     id: unitId, opts, d: {
       status: opts.status || (p && p.status !== 'todo' ? p.status : null),
-      cal: p?.cal || 1, amt: p?.status === 'done' ? p.amt : '', pay: p?.pay || 'especes', chq: p?.chq || '',
       name: p?.name || '', note: p?.note || '',
       rp: p?.rp ? { date: p.rp.date || '', slot: p.rp.slot || '', note: p.rp.note || '' } : { date: '', slot: '', note: '' },
       by: team.length ? team : [...(p?.by || [])],
@@ -1134,25 +1217,15 @@ function drawUnitSheet() {
   const { id, d, opts } = AS, u = unitIdx().get(id), a = u.a, p = Store.s.passages[id], z = zoneOf(a.id);
   const panel = Sheet.panel(); if (!panel) return;
   const sc = $('.sheet-body', panel)?.scrollTop || 0;
-  const price = +Store.s.settings.price || 0;
-  const needAmt = d.status === 'done' && String(d.amt).trim() === '';
   panel.innerHTML = `<div class="sheet-grab"></div>
   <header class="sheet-head">
     ${u.n > 1 ? `<button class="icon-btn" data-act="as-bld" aria-label="Retour à l'immeuble">${ico('chev-l')}</button>` : ''}
     <div class="plaque num">${esc(a.num)}</div>
-    <div class="t"><b>${esc(a.street)}</b><small>${u.n > 1 ? `<span class="apt sm">${esc(u.label)} · ${u.k}/${u.n}</span>` : ''}${esc(a.com)} · ${a.even ? 'pair' : 'impair'}${z ? ` · <span class="zdot" style="--c:${z.color}"></span>${esc(z.name)}` : ''}${p && p.status !== 'todo' ? ' · ' + stPill(p.status) : ''}</small></div>
+    <div class="t"><b>${esc(a.street)}</b><small>${u.n > 1 ? `<span class="apt sm">${esc(u.label)} · ${u.k}/${u.n}</span>` : ''}${esc(a.com)}${z ? ` · <span class="zdot" style="--c:${z.color}"></span>${esc(z.name)}` : ''}${p && p.status !== 'todo' ? ' · ' + stPill(p.status) : ''}</small></div>
     <button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button>
   </header>
   <div class="sheet-body">
     <div class="st-pick">${['done', 'absent', 'repasse', 'refus'].map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
-    ${d.status === 'done' ? `
-      <div class="grid2">
-        <div class="field"><span class="lbl">Calendriers</span><div class="stepper"><button data-act="as-cal" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${d.cal}</b><button data-act="as-cal" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
-        <div class="field"><label for="as-amt">Montant</label><div class="money"><input id="as-amt" class="input" inputmode="decimal" data-bind="amt" value="${esc(d.amt)}" placeholder="${price ? price * d.cal : 0}"><span>€</span></div></div>
-      </div>
-      <div class="chips wrap">${AMOUNTS.map((v) => `<button class="chip" data-act="as-amt" data-v="${v}" aria-pressed="${num(d.amt) === v && String(d.amt) !== ''}">${v} €</button>`).join('')}</div>
-      <div class="field"><span class="lbl">Règlement</span><div class="chips wrap">${Object.entries(PAY).map(([k, l]) => `<button class="chip" data-act="as-pay" data-v="${k}" aria-pressed="${d.pay === k}">${l}</button>`).join('')}</div></div>
-      ${d.pay === 'cheque' ? `<div class="field"><label for="as-chq">N° de chèque (facultatif)</label><input id="as-chq" class="input" data-bind="chq" value="${esc(d.chq)}" inputmode="numeric"></div>` : ''}` : ''}
     ${d.status === 'absent' || d.status === 'repasse' ? `
       <div class="field"><span class="lbl">${d.status === 'absent' ? 'Programmer une repasse (facultatif)' : 'Quand repasser ?'}</span>
         <div class="chips wrap">${d.status === 'absent' ? `<button class="chip" data-act="as-rpdate" data-v="" aria-pressed="${!d.rp.date}">Pas de repasse</button>` : ''}${dateChoices().map(([v, l]) => `<button class="chip" data-act="as-rpdate" data-v="${v}" aria-pressed="${d.rp.date === v}">${l}</button>`).join('')}<label class="chip date-chip">${ico('cal', 'sm')}<input type="date" data-bind="rp.date" value="${esc(d.rp.date)}" aria-label="Autre date"></label></div>
@@ -1160,22 +1233,22 @@ function drawUnitSheet() {
       <div class="chips wrap">${Object.entries(SLOTS).map(([k, l]) => `<button class="chip" data-act="as-slot" data-v="${k}" aria-pressed="${d.rp.slot === k}">${l}</button>`).join('')}</div>
       <input class="input" data-bind="rp.note" value="${esc(d.rp.note)}" placeholder="Ex. revenir après 18 h, sonner derrière" aria-label="Consigne pour la repasse">` : ''}
     <details class="more" ${d.name || d.note ? 'open' : ''}><summary>Occupant et note</summary><div>
-      <div class="field"><label for="as-name">Nom (facultatif)</label><input id="as-name" class="input" data-bind="name" value="${esc(d.name)}" placeholder="Seulement si utile (reçu, fidèle donateur)"></div>
-      <div class="field"><label for="as-note">Note</label><textarea id="as-note" class="input" data-bind="note" rows="2" placeholder="Ex. boîte aux lettres à l'arrière">${esc(d.note)}</textarea></div>
+      <div class="field"><label for="as-name">Nom (facultatif)</label><input id="as-name" class="input" data-bind="name" value="${esc(d.name)}" placeholder="Seulement si c'est utile pour repasser"></div>
+      <div class="field"><label for="as-note">Note</label><textarea id="as-note" class="input" data-bind="note" rows="2" placeholder="Ex. sonner à la porte de derrière">${esc(d.note)}</textarea></div>
     </div></details>
-    <div class="field"><span class="lbl">Passage effectué par</span><div class="chips wrap">${members().length ? memberChips('as-by', d.by) : '<span class="muted">Ajoutez l’équipe dans l’onglet Équipe.</span>'}</div></div>
-    ${p?.hist?.length ? `<div class="field"><span class="lbl">Historique du foyer</span><div class="timeline">${[...p.hist].reverse().map((h) => `<div class="tl" data-st="${h.s}"><b>${STATUS[h.s].short}</b><span class="muted">${dayLabel(isoDay(new Date(h.at)))} ${hhmm(h.at)}${h.by?.length ? ' · ' + esc(names(h.by)) : ''}${h.s === 'done' ? ` · ${eur(h.amt)}${h.pay ? ' ' + PAY_SHORT[h.pay] : ''}` : ''}</span></div>`).join('')}</div></div>` : ''}
+    <div class="field"><span class="lbl">Passage effectué par</span><div class="chips wrap">${members().length ? memberChips('as-by', d.by) : '<span class="muted">Le responsable doit d’abord créer la liste des pompiers.</span>'}</div></div>
+    ${p?.hist?.length ? `<div class="field"><span class="lbl">Historique du foyer</span><div class="timeline">${[...p.hist].reverse().map((h) => `<div class="tl" data-st="${h.s}"><b>${STATUS[h.s].short}</b><span class="muted">${dayLabel(isoDay(new Date(h.at)))} ${hhmm(h.at)}${h.by?.length ? ' · ' + esc(names(h.by)) : ''}</span></div>`).join('')}</div></div>` : ''}
     <details class="more"><summary>Habitation et secteur</summary><div>
       ${u.n > 1
         ? `<div class="field"><label for="unit-label">Repère du logement</label><input id="unit-label" class="input" data-change="unit-label" data-id="${a.id}" data-k="${u.k}" value="${esc(u.label)}" placeholder="Ex. 1er étage gauche"></div><button class="btn ghost" data-act="as-bld">${ico('door')} Gérer l'immeuble · ${u.n} logements</button>`
         : '<div class="set-row" style="border:0;padding:0"><div class="t"><b>Maison individuelle</b><small>Un immeuble ? Indiquez le nombre de logements.</small></div><button class="btn ghost sm" data-act="as-bld">Plusieurs logements</button></div>'}
-      ${zoneSelect(a.id)}
+      ${Role.admin ? zoneSelect(a.id) : ''}
     </div></details>
     ${p && p.status !== 'todo' ? '<button class="link danger" data-act="as-reset" style="justify-self:start">Remettre le foyer à « À faire »</button>' : ''}
   </div>
   <footer class="sheet-foot">
     ${opts.tour ? '' : `<button class="btn ghost" data-act="as-tour" aria-label="Démarrer la tournée à ce foyer">${ico('door')}</button>`}
-    <button class="btn block" data-act="as-save" ${!d.status || needAmt ? 'disabled' : ''}>${!d.status ? 'Choisissez un résultat' : needAmt ? 'Indiquez le montant' : 'Enregistrer'}</button>
+    <button class="btn block" data-act="as-save" ${d.status ? '' : 'disabled'}>${d.status ? 'Enregistrer' : 'Choisissez un résultat'}</button>
   </footer>`;
   $('.sheet-body', panel).scrollTop = sc;
 }
@@ -1184,21 +1257,18 @@ function asSave() {
   const { id, d, opts } = AS, u = unitIdx().get(id);
   const prev = savePassage(id, d);
   vibrate(18); Sheet.close();
-  toast(`${unitTitle(u)} · ${STATUS[d.status].short}${d.status === 'done' ? ' · ' + eur(num(d.amt)) : ''}`, { undo: () => restorePassage(id, prev) });
+  toast(`${unitTitle(u)} · ${STATUS[d.status].short}`, { undo: () => restorePassage(id, prev) });
   if (opts.tour && UI.tour.cur === id && d.status !== 'todo') tourNext(1);
   App.changed();
 }
 function openMeSheet() {
   const panel = Sheet.open('me');
   const draw = () => {
-    const ms = members(), v = Me.get();
+    const t = Me.team();
     panel.innerHTML = `<div class="sheet-grab"></div>
-    <header class="sheet-head"><div class="t"><b>Qui fait la tournée ?</b><small>Les passages notés sur ce téléphone seront attribués à ces personnes.</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
-    <div class="sheet-body">${ms.length ? `
-      <div class="field"><span class="lbl">C'est moi</span><div class="chips wrap">${memberChips('me-set', [v.me])}</div></div>
-      <div class="field"><span class="lbl">En binôme avec</span><div class="chips wrap"><button class="chip" data-act="partner-set" data-v="" aria-pressed="${!v.partner}">Seul</button>${memberChips('partner-set', [v.partner], v.me)}</div></div>` : '<div class="empty"><b>Pas encore d’équipe</b>Ajoutez les membres dans l’onglet Équipe.</div>'}
-    </div>
-    <footer class="sheet-foot">${ms.length ? '<button class="btn block" data-act="sheet-close">Valider</button>' : '<button class="btn block" data-act="go" data-v="team">Ajouter l’équipe</button>'}</footer>`;
+    <header class="sheet-head"><div class="t"><b>Qui fait la tournée ?</b><small>Votre prénom et celui des personnes avec vous, souvent 2 ou 3.</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
+    <div class="sheet-body">${meBlock()}</div>
+    <footer class="sheet-foot">${members().length ? `<button class="btn block" data-act="sheet-close" ${t.length ? '' : 'disabled'}>${t.length ? 'C’est parti' : 'Choisissez au moins une personne'}</button>` : '<button class="btn block" data-act="go" data-v="team">Voir l’équipe</button>'}</footer>`;
   };
   draw(); Sheet.refresh = draw;
 }
@@ -1220,35 +1290,23 @@ const Page = {
 const PAGES = {};
 
 PAGES.settings = (args) => {
-  const set = Store.s.settings, zs = zones(), S = stats(), theme = LS.get(K.theme, 'auto'), miss = unassigned().length, A0 = addrs().length;
+  const set = Store.s.settings, theme = LS.get(K.theme, 'auto');
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent), standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const admin = Role.admin;
   return {
     title: 'Réglages',
     body: `<div class="stackv">
-    <section class="card" id="sec-campaign"><div class="card-h"><h2>Campagne</h2></div>
-      <div class="grid2">
-        <div class="field" style="grid-column:1/-1"><label for="set-name">Nom affiché</label><input id="set-name" class="input" data-set="name" value="${esc(set.name || '')}"></div>
-        <div class="field"><label for="set-goal">Objectif (€)</label><input id="set-goal" class="input" inputmode="numeric" data-set="goal" value="${set.goal || ''}"></div>
-        <div class="field"><label for="set-price">Don conseillé (€)</label><input id="set-price" class="input" inputmode="decimal" data-set="price" value="${set.price || ''}"></div>
-      </div>
+    <section class="card"><div class="card-h"><h2>Sur ce téléphone</h2><span class="role-pill">${admin ? ico('gear', 'sm') + ' Responsable' : ico('door', 'sm') + ' Distributeur'}</span></div>
+      ${meBlock()}
+      ${admin ? '<button class="link" data-act="leave-admin" style="margin-top:14px">Quitter l’accès responsable</button>'
+              : `<form class="street-tools" style="margin-top:14px" data-form="admin-code"><input class="input" name="code" inputmode="numeric" autocomplete="off" placeholder="Code responsable" aria-label="Code responsable" required><button class="btn ghost" type="submit">Entrer</button></form>`}
     </section>
-    <section class="card" id="sec-zones"><div class="card-h"><h2>Secteurs</h2><span class="muted">${zs.length || 'aucun'}</span></div>
-      ${zs.length ? `<div class="coverage ${miss ? 'warn' : 'ok'}"><div class="cov-bar"><i style="width:${pct(A0 - miss, A0)}%"></i></div><p>${miss ? `<b>${miss} adresse${miss > 1 ? 's' : ''} sans secteur</b> sur ${A0}.` : `<b>Toutes les adresses sont dans un secteur.</b> ${A0} sur ${A0}.`}</p>${miss ? '<button class="btn sm" data-act="page" data-v="unassigned">Répartir les oubliées</button>' : ''}</div>` : ''}
-      ${zs.map((z) => { const bz = S.byZone[z.id] || { total: 0, visited: 0 }; return `<button class="mini-row" data-act="zone-edit" data-v="${z.id}"><span class="zdot" style="--c:${z.color};width:16px;height:16px"></span><span class="grow"><b>${esc(z.name)}</b><small>${(z.addrs || []).length} adresses · ${bz.total} foyers · ${pct(bz.visited, bz.total)} % visités · ${esc(names(z.members)) || 'aucun binôme'}</small></span>${ico('chev-r', 'sm')}</button>`; }).join('')}
-      <div class="grid2" style="margin-top:12px">
-        <button class="btn" data-act="zone-new">${ico('plus')} Par rue</button>
-        <button class="btn ghost" data-act="draw-start">${ico('pen')} Entourer</button>
-      </div>
-      <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!args.auto}">${ico('sparkle')} Découpage automatique</button>
-      ${args.auto ? `<div class="quick" style="margin-top:14px">
-        <button class="btn block" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button>
-        <div class="note-box">Ou un découpage équilibré : les rues restent entières, chaque secteur a à peu près le même nombre de foyers.</div>
-        <div class="set-row" style="border:0"><div class="t"><b>Nombre de secteurs</b><small>≈ ${Math.round(S.total / (args.n || 6))} foyers chacun</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${args.n || 6}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
-        <button class="btn ghost block" data-act="auto-go">${zs.length ? `Remplacer les ${zs.length} secteurs actuels` : 'Créer les secteurs'}</button>
-      </div>` : ''}
-    </section>
+    ${admin ? `<section class="card" id="sec-campaign"><div class="card-h"><h2>Campagne</h2></div>
+      <div class="field"><label for="set-name">Nom affiché</label><input id="set-name" class="input" data-set="name" value="${esc(set.name || '')}"></div>
+      <div class="field" style="margin-top:12px"><label for="set-code">Code responsable</label><input id="set-code" class="input" inputmode="numeric" data-set="code" value="${esc(set.code || '')}" placeholder="4 chiffres"><small class="muted">À donner seulement aux personnes qui répartissent les rues.</small></div>
+    </section>` : ''}
     <section class="card" id="sec-sync">${syncSection()}</section>
-    <section class="card" id="sec-addr"><div class="card-h"><h2>Adresse manquante</h2></div>
+    ${admin ? `<section class="card" id="sec-addr"><div class="card-h"><h2>Adresse manquante</h2></div>
       <form data-form="add-addr" class="grid2">
         <div class="field" style="grid-column:1/-1"><label for="aa-com">Commune</label><select id="aa-com" name="com" class="input">${COMMUNES.map((c) => `<option ${UI.com === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
         <div class="field" style="grid-column:1/-1"><label for="aa-street">Rue</label><input id="aa-street" name="street" class="input" list="street-dl" required autocomplete="off"><datalist id="street-dl">${[...new Set(streets().map((st) => st.name))].map((n) => `<option value="${esc(n)}">`).join('')}</datalist></div>
@@ -1256,23 +1314,25 @@ PAGES.settings = (args) => {
         <div class="field"><span class="lbl">&nbsp;</span><button class="btn" type="submit">${ico('plus')} Ajouter</button></div>
       </form>
       <p class="muted" style="margin:10px 0 0;font-size:13px">Nouvelle construction absente de la base : elle est placée près des numéros voisins.</p>
-    </section>
+    </section>` : ''}
     <section class="card" id="sec-data"><div class="card-h"><h2>Données</h2></div>
-      <div class="set-row"><div class="t"><b>Export pour le trésorier</b><small>Tableau Excel (CSV) : un foyer par ligne, montants, règlements, n° de chèque</small></div><button class="btn sm ghost" data-act="export-csv">${ico('download', 'sm')} CSV</button></div>
-      <div class="set-row"><div class="t"><b>Sauvegarde complète</b><small>Fichier à garder en lieu sûr</small></div><button class="btn sm ghost" data-act="export-json">${ico('download', 'sm')} Sauver</button></div>
-      <div class="set-row"><div class="t"><b>Restaurer une sauvegarde</b><small>Fusionne avec les données actuelles</small></div><button class="btn sm ghost" data-act="import-json">${ico('upload', 'sm')} Importer</button></div>
+      <div class="set-row"><div class="t"><b>Export</b><small>Tableau Excel (CSV) : un foyer par ligne, avec son statut, son équipe et ses repasses</small></div><button class="btn sm ghost" data-act="export-csv">${ico('download', 'sm')} CSV</button></div>
+      ${admin ? `<div class="set-row"><div class="t"><b>Sauvegarde complète</b><small>Fichier à garder en lieu sûr</small></div><button class="btn sm ghost" data-act="export-json">${ico('download', 'sm')} Sauver</button></div>
+      <div class="set-row"><div class="t"><b>Restaurer une sauvegarde</b><small>Fusionne avec les données actuelles</small></div><button class="btn sm ghost" data-act="import-json">${ico('upload', 'sm')} Importer</button></div>` : ''}
       <div class="set-row"><div class="t"><b>Mode démo</b><small>${Store.demoOn ? 'Actif : données fictives' : 'Explorer l’app avec des données fictives'}</small></div><button class="btn sm ghost" data-act="${Store.demoOn ? 'demo-exit' : 'demo-enter'}">${Store.demoOn ? 'Quitter' : 'Lancer'}</button></div>
       <div class="set-row"><div class="t"><b>Effacer ce téléphone</b><small>Supprime les données locales. Celles déjà envoyées restent dans la feuille Google.</small></div><button class="btn sm ghost" data-act="reset-ask">${ico('trash', 'sm')} Effacer</button></div>
       ${args.reset ? `<div class="confirm"><p>Effacer toutes les données de ce téléphone ? Faites d'abord une sauvegarde si l'équipe n'est pas synchronisée.</p><div class="grid2"><button class="btn ghost" data-act="reset-no">Annuler</button><button class="btn red" data-act="reset-yes">Tout effacer</button></div></div>` : ''}
     </section>
     <section class="card"><div class="card-h"><h2>Affichage</h2></div>
       <div class="seg" style="width:100%">${[['auto', 'Automatique'], ['light', 'Clair'], ['dark', 'Sombre']].map(([v, l]) => `<button data-act="theme" data-v="${v}" aria-pressed="${theme === v}">${l}</button>`).join('')}</div>
-      ${standalone ? '' : App.installPrompt ? `<button class="btn block" style="margin-top:12px" data-act="install">${ico('download')} Installer l'app sur ce téléphone</button>` : `<div class="note-box" style="margin-top:12px">${ios ? 'Sur iPhone : touchez le bouton Partager de Safari, puis « Sur l’écran d’accueil ». L’app s’ouvrira en plein écran, même sans réseau.' : 'Dans le menu du navigateur, choisissez « Installer l’application » ou « Ajouter à l’écran d’accueil ».'}</div>`}
+      ${standalone ? '' : App.installPrompt ? `<button class="btn block" style="margin-top:12px" data-act="install">${ico('download')} Installer l'app sur ce téléphone</button>` : `<div class="note-box" style="margin-top:12px">${ios ? 'Sur iPhone : touchez le bouton Partager de Safari, puis « Sur l’écran d’accueil ».' : 'Dans le menu du navigateur, choisissez « Installer l’application ».'}</div>`}
     </section>
     <p class="muted" style="font-size:12.5px;margin:0">Adresses : Base Adresse Nationale (${COMMUNES.join(', ')}), ${BASE_ADDRS.length} adresses. Plan : © contributeurs OpenStreetMap. Photo aérienne : © IGN.</p>
   </div>`,
   };
 };
+/** Texte brut de la répartition, quand le partage et le presse-papiers ne sont pas disponibles. */
+PAGES.share = () => ({ title: 'Répartition', body: `<div class="stackv"><div class="note-box">Copiez ce texte et collez-le dans le groupe de l'amicale.</div><textarea class="input" rows="18" readonly onclick="this.select()">${esc(shareText())}</textarea></div>` });
 function syncSection() {
   const configured = Sync.configured, code = Sync.code;
   const lbl = Store.demoOn ? 'démo' : { local: 'non reliée', online: 'en ligne', syncing: 'synchro…', offline: 'hors ligne', error: 'erreur' }[Sync.state];
@@ -1304,35 +1364,35 @@ PAGES.history = (args) => {
     body: `<div class="stackv">
       <div class="chips scroll-x">${['all', 'done', 'absent', 'repasse', 'refus'].map((k) => `<button class="chip" data-act="hist-f" data-v="${k}" aria-pressed="${f === k}">${k === 'all' ? 'Tout' : `<span class="dot" data-st="${k}"></span>${STATUS[k].short}`}</button>`).join('')}</div>
       ${members().length ? `<select class="input" data-change="hist-member" aria-label="Membre"><option value="">Toute l'équipe</option>${members().map((x) => `<option value="${x.id}" ${m === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
-      ${ev.length ? [...groups].map(([k, list]) => `<section class="card"><div class="card-h"><h2>${dayLabel(k)}</h2><span class="muted">${list.length} passages · ${eur(sum(list.filter((e) => e.h.s === 'done'), (e) => e.h.amt))}</span></div><div class="mini-list" style="margin-top:0;border-top:0">${list.map((e) => evRow(e, true)).join('')}</div></section>`).join('') : '<div class="card empty"><b>Rien à afficher</b>Aucun passage ne correspond au filtre.</div>'}
+      ${ev.length ? [...groups].map(([k, list]) => `<section class="card"><div class="card-h"><h2>${dayLabel(k)}</h2><span class="muted">${list.length} passages</span></div><div class="mini-list" style="margin-top:0;border-top:0">${list.map((e) => evRow(e, true)).join('')}</div></section>`).join('') : '<div class="card empty"><b>Rien à afficher</b>Aucun passage ne correspond au filtre.</div>'}
     </div>`,
   };
 };
 PAGES.member = ({ id, confirm }) => {
   const m = member(id);
   if (!m) return { title: 'Membre', body: '<div class="card empty"><b>Membre introuvable</b></div>' };
-  const S = stats(), bm = S.byMember[id] || { doors: 0, amount: 0, cal: 0, streets: new Map() };
+  const S = stats(), bm = S.byMember[id] || { doors: 0, streets: new Map(), last: 0 };
   const sts = [...bm.streets.entries()].sort((a, b) => b[1].length - a[1].length);
   const recent = events().filter((e) => (e.h.by || []).includes(id)).slice(0, 12);
   const zn = zones().filter((z) => (z.members || []).includes(id));
   return {
     title: m.name,
     body: `<div class="stackv">
-      <section class="card" style="display:flex;gap:14px;align-items:center">${avatar(id, 'lg')}<div class="field" style="flex:1"><label for="mem-name">Nom</label><input id="mem-name" class="input" data-member="${id}" value="${esc(m.name)}"></div></section>
+      <section class="card" style="display:flex;gap:14px;align-items:center">${avatar(id, 'lg')}<div class="field" style="flex:1"><label for="mem-name">Prénom</label><input id="mem-name" class="input" data-member="${id}" value="${esc(m.name)}" ${Role.admin ? '' : 'disabled'}></div></section>
       <div class="kpis">
-        <div class="kpi card"><b>${bm.doors}</b><span>passages</span></div>
-        <div class="kpi card"><b>${nf(bm.cal)}</b><span>calendriers</span></div>
-        <div class="kpi card"><b>${eur(Math.round(bm.amount))}</b><span>collectés</span></div>
+        <div class="kpi card"><b>${bm.doors}</b><span>foyers faits</span></div>
         <div class="kpi card"><b>${sts.length}</b><span>rues</span></div>
+        <div class="kpi card"><b>${zn.length}</b><span>secteurs</span></div>
+        <div class="kpi card"><b>${bm.last ? dayShort(bm.last) : '—'}</b><span>dernier passage</span></div>
       </div>
-      <p class="muted" style="margin:0;font-size:13px">En binôme, les montants sont partagés à parts égales. Secteur : ${esc(zn.map((z) => z.name).join(', ') || 'aucun')}.</p>
+      <p class="muted" style="margin:0;font-size:13px">${zn.length ? `Équipe : ${esc(zn.map((z) => names(z.members) || 'personne').join(' / '))} · secteur ${esc(zn.map((z) => z.name).join(', '))}.` : 'Aucun secteur attribué.'}</p>
       <section class="card"><div class="card-h"><h2>Rues et maisons</h2><span class="muted">${sts.length} rues</span></div>
         ${sts.length ? sts.map(([sk, list]) => { const st = streetOf(sk); return `<div style="padding:10px 0;border-bottom:1px solid var(--line);display:grid;gap:8px"><div class="sr-top"><b>${esc(st?.name || sk)} <small class="muted" style="font-weight:600">${esc(st?.com || '')}</small></b><span class="muted" style="font:600 13px var(--f-body)">${list.length} foyer${list.length > 1 ? 's' : ''}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap">${[...list].sort((x, y) => numCmp(x.a, y.a) || x.k - y.k).map((u) => `<button class="dt sm" data-st="${statusOf(u.id)}" data-act="unit" data-id="${u.id}" aria-label="${esc(unitTitle(u))}">${esc(shortNum(u))}</button>`).join('')}</div></div>`; }).join('') : '<p class="muted" style="margin:0">Aucun passage enregistré.</p>'}
       </section>
       <section class="card"><div class="card-h"><h2>Derniers passages</h2></div>${recent.length ? `<div class="mini-list" style="margin-top:0;border-top:0">${recent.map((e) => evRow(e)).join('')}</div>` : '<p class="muted" style="margin:0">—</p>'}</section>
-      <section class="card"><div class="card-h"><h2>Couleur</h2></div><div class="swatches">${PALETTE.map((c) => `<button style="--c:${c}" data-act="mem-color" data-id="${id}" data-v="${c}" aria-pressed="${m.color === c}" aria-label="Couleur ${c}"></button>`).join('')}</div>
-        <div style="margin-top:16px">${confirm ? `<div class="confirm"><p>Retirer ${esc(m.name)} de l'équipe ? Ses passages restent dans l'historique.</p><div class="grid2"><button class="btn ghost" data-act="mem-del-no">Annuler</button><button class="btn red" data-act="mem-del" data-id="${id}">Retirer</button></div></div>` : '<button class="link danger" data-act="mem-del-ask">Retirer de l’équipe</button>'}</div>
-      </section>
+      ${Role.admin ? `<section class="card"><div class="card-h"><h2>Couleur</h2></div><div class="swatches">${PALETTE.map((c) => `<button style="--c:${c}" data-act="mem-color" data-id="${id}" data-v="${c}" aria-pressed="${m.color === c}" aria-label="Couleur ${c}"></button>`).join('')}</div>
+        <div style="margin-top:16px">${confirm ? `<div class="confirm"><p>Retirer ${esc(m.name)} de la liste ? Ses passages restent dans l'historique.</p><div class="grid2"><button class="btn ghost" data-act="mem-del-no">Annuler</button><button class="btn red" data-act="mem-del" data-id="${id}">Retirer</button></div></div>` : '<button class="link danger" data-act="mem-del-ask">Retirer de la liste</button>'}</div>
+      </section>` : ''}
     </div>`,
   };
 };
@@ -1404,33 +1464,40 @@ PAGES.unassigned = () => {
 };
 PAGES.welcome = (args) => {
   const step = args.step || 'intro';
-  if (step === 'create') return { bare: true, body: `<div class="welcome" style="text-align:left;justify-items:stretch">
-    <button class="link" data-act="w-step" data-v="intro" style="justify-self:start">${ico('chev-l', 'sm')} Retour</button>
-    <h1 class="w-title" style="font-size:48px">L'équipe</h1>
-    <p>Un pompier par ligne, prénom et initiale. Vous pourrez en ajouter plus tard.</p>
-    <form data-form="w-create" style="display:grid;gap:12px"><textarea class="input" name="names" rows="7" placeholder="Thomas K.&#10;Julie W.&#10;Nicolas B." aria-label="Membres de l'équipe" required></textarea><button class="btn red block" type="submit">Créer l'équipe</button></form>
+  const back = (to) => `<button class="link" data-act="w-step" data-v="${to}" style="justify-self:start">${ico('chev-l', 'sm')} Retour</button>`;
+  if (step === 'create') return { bare: true, body: `<div class="welcome left">
+    ${back('intro')}
+    <h1 class="w-title sm">Les pompiers</h1>
+    <p>Un prénom par ligne. Vous pourrez en ajouter d'autres plus tard.</p>
+    <form data-form="w-create" style="display:grid;gap:12px"><textarea class="input" name="names" rows="8" placeholder="Thomas K.&#10;Julie W.&#10;Nicolas B." aria-label="Liste des pompiers" required></textarea><button class="btn red block" type="submit">Continuer</button></form>
   </div>` };
-  if (step === 'join') return { bare: true, body: `<div class="welcome" style="text-align:left;justify-items:stretch">
-    <button class="link" data-act="w-step" data-v="intro" style="justify-self:start">${ico('chev-l', 'sm')} Retour</button>
-    <h1 class="w-title" style="font-size:48px">Rejoindre</h1>
-    <p>Le plus simple : scannez le QR code affiché dans les réglages du chef d'équipe avec l'appareil photo. Sinon, saisissez l'adresse de la feuille et le code.</p>
-    <form data-form="join" style="display:grid;gap:12px"><input class="input" name="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" aria-label="Adresse de la feuille"><input class="input" name="code" placeholder="SEP-XXXX-XXXX" autocapitalize="characters" autocomplete="off" aria-label="Code d'équipe" required style="font:800 24px var(--f-display);letter-spacing:.08em;text-align:center"><button class="btn red block" type="submit">Rejoindre l'équipe</button></form>
+  if (step === 'code') return { bare: true, body: `<div class="welcome left">
+    <h1 class="w-title sm">Code responsable</h1>
+    <p>Choisissez un code à 4 chiffres. Donnez-le seulement aux personnes qui répartissent les rues. Les autres n'en ont pas besoin.</p>
+    <form data-form="w-code" style="display:grid;gap:12px"><input class="input code-input" name="code" inputmode="numeric" autocomplete="off" placeholder="0000" aria-label="Code responsable" required><button class="btn red block" type="submit">Créer le code</button></form>
   </div>` };
-  if (step === 'who') { const v = Me.get(); return { bare: true, body: `<div class="welcome">
-    <h1 class="w-title" style="font-size:48px">Qui êtes-vous ?</h1>
-    <p>Vos passages seront notés à votre nom sur ce téléphone.</p>
-    ${members().length ? `<div class="chips wrap" style="justify-content:center">${memberChips('me-set', [v.me])}</div>` : '<p class="muted">Récupération de l’équipe en cours…</p>'}
+  if (step === 'join') return { bare: true, body: `<div class="welcome left">
+    ${back('intro')}
+    <h1 class="w-title sm">Rejoindre</h1>
+    <p>Le plus simple : scannez le QR code du responsable avec l'appareil photo. Sinon, saisissez l'adresse de la feuille et le code de l'équipe.</p>
+    <form data-form="join" style="display:grid;gap:12px"><input class="input" name="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" aria-label="Adresse de la feuille"><input class="input code-input" name="code" placeholder="SEP-XXXX-XXXX" autocapitalize="characters" autocomplete="off" aria-label="Code d'équipe" required><button class="btn red block" type="submit">Rejoindre</button></form>
+  </div>` };
+  if (step === 'who') return { bare: true, body: `<div class="welcome left">
+    <h1 class="w-title sm">Qui êtes-vous ?</h1>
+    <p>Touchez votre prénom et celui des personnes qui tournent avec vous. Vous pouvez être 2 ou 3.</p>
+    ${members().length ? meBlock() : '<p class="muted">La liste des pompiers arrive…</p>'}
     <button class="btn red block" data-act="w-done">${Me.team().length ? 'C’est parti' : 'Plus tard'}</button>
-  </div>` }; }
+  </div>` };
   return { bare: true, body: `<div class="welcome">
     <div class="w-crest"><img src="icons/logo.jpg" alt="Blason de l'Amicale des Sapeurs-Pompiers de Seppois-le-Bas"></div>
     <div class="lbl">Amicale des Sapeurs-Pompiers de Seppois-le-Bas · depuis 1926</div>
     <h1 class="w-title">Tournée des <em>calendriers</em></h1>
-    <p>Les ${nf(BASE_ADDRS.length)} adresses du secteur sont déjà chargées, rue par rue : ${COMMUNES.join(', ')}. Notez chaque foyer, appartements compris, programmez les repasses et suivez qui a fait quelles rues, même sans réseau.</p>
+    <p>Les ${nf(BASE_ADDRS.length)} adresses du secteur sont déjà chargées : ${COMMUNES.join(', ')}. Le responsable répartit les rues, chaque équipe suit les siennes, même sans réseau.</p>
     <div class="w-facts"><span>${COMMUNES.length} communes</span><span>${streets().length} rues</span><span>${nf(BASE_ADDRS.length)} adresses</span><span>Hors ligne</span></div>
     <div class="w-actions">
-      <button class="btn red block" data-act="w-step" data-v="create">Créer l'équipe</button>
-      <button class="btn ghost block" data-act="w-step" data-v="join">J'ai un code d'équipe</button>
+      <button class="btn red block" data-act="w-step" data-v="who">${ico('door')} Je distribue</button>
+      <button class="btn ghost block" data-act="w-step" data-v="join">${ico('link')} J'ai un code d'équipe</button>
+      <button class="btn ghost block" data-act="w-step" data-v="create">${ico('gear')} Je répartis les rues</button>
       <button class="link" data-act="w-demo">Découvrir avec des données de démo</button>
     </div>
   </div>` };
@@ -1797,14 +1864,14 @@ const MapView = {
 // ═════════════════════════ Exports
 function exportCSV() {
   const s = Store.s, zi = zoneIndex();
-  const head = ['Commune', 'Rue', 'Numéro', 'Logement', 'Statut', 'Calendriers', 'Montant (€)', 'Règlement', 'N° chèque', 'Occupant', 'Note', 'Repasse le', 'Créneau', 'Fait par', 'Dernier passage', 'Secteur'];
+  const head = ['Commune', 'Rue', 'Numéro', 'Logement', 'Statut', 'Fait par', 'Date du passage', 'Repasse le', 'Créneau', 'Consigne', 'Occupant', 'Note', 'Secteur', 'Équipe'];
   const rows = [...units()].sort((x, y) => x.a.ci - y.a.ci || sortKey(x.a.street).localeCompare(sortKey(y.a.street), 'fr') || numCmp(x.a, y.a) || x.k - y.k).map((u) => {
-    const a = u.a, p = s.passages[u.id] || {}, st = p.status || 'todo', z = zi.get(a.id), d = st === 'done';
-    return [a.com, a.street, a.num, u.label, STATUS[st].label, d ? p.cal : '', d ? String(p.amt).replace('.', ',') : '', d ? PAY[p.pay] || '' : '', p.chq || '', p.name || '', [p.note, p.rp?.note].filter(Boolean).join(' / '), p.rp?.date || '', SLOTS[p.rp?.slot] || '', names(p.by), p.at ? new Date(p.at).toLocaleString('fr-FR') : '', z ? s.zones[z].name : ''];
+    const a = u.a, p = s.passages[u.id] || {}, st = p.status || 'todo', zid = zi.get(a.id), z = zid ? s.zones[zid] : null;
+    return [a.com, a.street, a.num, u.label, STATUS[st].label, names(p.by), p.at && st !== 'todo' ? new Date(p.at).toLocaleString('fr-FR') : '',
+      p.rp?.date || '', SLOTS[p.rp?.slot] || '', p.rp?.note || '', p.name || '', p.note || '', z ? z.name : '', z ? names(z.members) : ''];
   });
   const S = stats();
-  rows.push([], ['Total collecté', '', '', '', '', S.cal, String(S.amount).replace('.', ',')]);
-  for (const k of Object.keys(PAY)) rows.push([PAY[k], '', '', '', '', '', String(S.pay[k].amt).replace('.', ','), `${S.pay[k].n} dons`]);
+  rows.push([], ['Foyers', S.total], ['Faits', S.visited], ...ST_FILTER.map((k) => [STATUS[k].label, S.st[k]]));
   const csv = '﻿' + [head, ...rows].map((r) => r.map((v) => { const t = String(v ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; }).join(';')).join('\r\n');
   download(`calendriers-${s.settings.year || ''}-${isoDay()}.csv`, csv, 'text/csv;charset=utf-8');
 }
@@ -1840,7 +1907,7 @@ function applyTheme() {
   $('meta[name="theme-color"]').content = dark ? '#0B0C0E' : '#15171A';
 }
 function maybeWelcome() {
-  if (!Store.demoOn && !members().length && !Object.keys(Store.live.passages).length && !LS.get(K.welcomed, false)) Page.open('welcome', { step: 'intro' });
+  if (!Store.demoOn && !Role.chosen && !LS.get(K.welcomed, false)) Page.open('welcome', { step: 'intro' });
 }
 function joinTeam(url, code) {
   if (Store.demoOn) Store.exitDemo();
@@ -1859,8 +1926,14 @@ const A = {
   'sheet-close': () => Sheet.close(),
   history: () => Page.open('history', {}),
   'me-sheet': () => openMeSheet(),
-  'me-set': (el) => { const v = Me.get(), me = el.dataset.v; Me.set({ me, partner: v.partner === me ? '' : v.partner }); },
-  'partner-set': (el) => Me.set({ ...Me.get(), partner: el.dataset.v }),
+  'me-toggle': (el) => Me.toggle(el.dataset.v),
+  'leave-admin': () => { Role.set('distrib'); go('home'); toast('Retour à l’accès distributeur.'); },
+  'share-assign': async () => {
+    const txt = shareText();
+    if (navigator.share) { try { await navigator.share({ title: 'Répartition des calendriers', text: txt }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
+    try { await navigator.clipboard.writeText(txt); toast('Répartition copiée : collez-la dans le groupe.'); }
+    catch (e) { Page.open('share'); }
+  },
   'demo-enter': () => { Store.enterDemo(); if (Page.cur) Page.close(); Sheet.close(); MapView.route = null; MapView.renderRouteBar(); go('home'); toast('Mode démo : explorez librement, rien n’est enregistré.'); },
   'demo-exit': () => { Store.exitDemo(); if (Page.cur) Page.close(); MapView.route = null; MapView.renderRouteBar(); UI.tour.cur = null; App.changed(); toast('Retour aux vraies données.'); maybeWelcome(); },
   mapmode: (el) => { UI.mapMode = el.dataset.v; UI.street = null; saveUI(); renderMapView(); if (UI.mapMode === 'map') requestAnimationFrame(() => MapView.show()); },
@@ -1889,9 +1962,6 @@ const A = {
   'bld-n': (el) => { const a = BS?.id; if (a) setBld(a, unitsOf(a).length + +el.dataset.v); },
   'as-bld': () => { const u = unitIdx().get(AS.id), tour = AS.opts.tour; Sheet.close(); openBuilding(u.a.id, { tour }); },
   'as-status': (el) => { AS.d.status = el.dataset.v; if (AS.d.status === 'repasse' && !AS.d.rp.date) AS.d.rp.date = addDays(isoDay(), 1); drawUnitSheet(); },
-  'as-cal': (el) => { AS.d.cal = clamp(AS.d.cal + +el.dataset.v, 1, 20); drawUnitSheet(); },
-  'as-amt': (el) => { AS.d.amt = +el.dataset.v; drawUnitSheet(); },
-  'as-pay': (el) => { AS.d.pay = el.dataset.v; drawUnitSheet(); },
   'as-rpdate': (el) => { AS.d.rp.date = el.dataset.v; drawUnitSheet(); },
   'as-slot': (el) => { AS.d.rp.slot = AS.d.rp.slot === el.dataset.v ? '' : el.dataset.v; drawUnitSheet(); },
   'as-by': (el) => { const v = el.dataset.v, by = AS.d.by; AS.d.by = by.includes(v) ? by.filter((x) => x !== v) : [...by, v]; drawUnitSheet(); },
@@ -1911,19 +1981,16 @@ const A = {
   'td-mode': (el) => { TD.mode = el.dataset.v || null; App.changed(); },
   'td-later': (el) => { TD.mode = 'later'; TD.status = el.dataset.v; if (TD.status === 'repasse' && !TD.rpDate) TD.rpDate = addDays(isoDay(), 1); App.changed(); },
   'td-refus': () => tourSave('refus'),
-  'td-cal': (el) => { TD.cal = clamp(TD.cal + +el.dataset.v, 1, 20); App.changed(); },
-  'td-amt': (el) => { TD.amt = +el.dataset.v; App.changed(); },
-  'td-pay': (el) => { TD.pay = el.dataset.v; App.changed(); },
   'td-rpdate': (el) => { TD.rpDate = el.dataset.v; App.changed(); },
   'td-slot': (el) => { TD.rpSlot = TD.rpSlot === el.dataset.v ? '' : el.dataset.v; App.changed(); },
-  'td-save-done': () => { if (TD.amt != null) tourSave('done', { cal: TD.cal, amt: TD.amt, pay: TD.pay }); },
+  'td-done': () => tourSave('done'),
   'td-save-later': () => tourSave(TD.status, { rp: TD.rpDate || TD.status === 'repasse' ? { date: TD.rpDate, slot: TD.rpSlot, note: TD.rpNote } : null }),
   'rp-quick': (el) => quickRp(el.dataset.id, el.dataset.v),
   member: (el) => { Sheet.close(); Page.open('member', { id: el.dataset.v }); },
   'mem-color': (el) => { const m = member(el.dataset.id); if (m) Store.put('member', m.id, { ...m, color: el.dataset.v }); },
   'mem-del-ask': () => Page.set({ confirm: true }),
   'mem-del-no': () => Page.set({ confirm: false }),
-  'mem-del': (el) => { const m = member(el.dataset.id); if (!m) return; Store.put('member', m.id, { ...m, del: true }); const v = Me.get(); if (v.me === m.id || v.partner === m.id) Me.set({ me: v.me === m.id ? '' : v.me, partner: v.partner === m.id ? '' : v.partner }); Page.close(); toast(`${m.name} a été retiré de l'équipe.`); },
+  'mem-del': (el) => { const m = member(el.dataset.id); if (!m) return; Store.put('member', m.id, { ...m, del: true }); Me.set(Me.team().filter((x) => x !== m.id)); Page.close(); toast(`${m.name} a été retiré de la liste.`); },
   // Secteurs
   'zone-new': () => { ZE = newZE(); Page.open('zone'); },
   'zone-edit': (el) => { const z = Store.s.zones[el.dataset.v]; if (z) openZoneEditor(z); },
@@ -1947,10 +2014,10 @@ const A = {
     ZE = null; Page.close();
     toast(`${isNew ? 'Secteur créé' : 'Secteur enregistré'} : ${name}${moved ? ` · ${moved} adresse${moved > 1 ? 's' : ''} déplacée${moved > 1 ? 's' : ''} depuis un autre secteur` : ''}`);
   },
-  'auto-open': () => Page.set({ auto: !Page.args.auto, n: Page.args.n || 6 }),
-  'auto-n': (el) => Page.set({ n: clamp((Page.args.n || 6) + +el.dataset.v, 2, 12) }),
-  'auto-com': () => { replaceZones(COMMUNES.map((c) => addrs().filter((a) => a.com === c).map((a) => a.id)), (ids, i) => COMMUNES[i]); Page.set({ auto: false }); toast(`${COMMUNES.length} secteurs créés, un par commune. Affectez un binôme à chacun.`); },
-  'auto-go': () => { const n = Page.args.n || 6; replaceZones(autoGroups(n, true), (ids, i) => { const cs = comsOf(ids); return `Secteur ${i + 1}${cs.length === 1 ? ' · ' + cs[0] : ''}`; }); Page.set({ auto: false }); toast(`${n} secteurs créés, rues entières. Affectez un binôme à chacun.`); },
+  'auto-open': () => { UI.auto = !UI.auto; UI.autoN = UI.autoN || 6; App.changed(); },
+  'auto-n': (el) => { UI.autoN = clamp((UI.autoN || 6) + +el.dataset.v, 2, 12); App.changed(); },
+  'auto-com': () => { replaceZones(COMMUNES.map((c) => addrs().filter((a) => a.com === c).map((a) => a.id)), (ids, i) => COMMUNES[i]); UI.auto = false; App.changed(); toast(`${COMMUNES.length} secteurs créés, un par commune. Affectez une équipe à chacun.`); },
+  'auto-go': () => { const n = UI.autoN || 6; replaceZones(autoGroups(n, true), (ids, i) => { const cs = comsOf(ids); return `Secteur ${i + 1}${cs.length === 1 ? ' · ' + cs[0] : ''}`; }); UI.auto = false; App.changed(); toast(`${n} secteurs créés, rues entières. Affectez une équipe à chacun.`); },
   'unassigned-map': () => { UI.zone = '__none'; UI.filter = 'all'; UI.mapMode = 'map'; saveUI(); Page.close(); go('map'); },
   'unassigned-new': () => { ZE = newZE(); unassigned().forEach((a) => ZE.addrs.add(a.id)); ZE.only = true; Page.open('zone'); },
   'export-csv': () => exportCSV(),
@@ -1978,19 +2045,26 @@ const A = {
   'sync-now': () => { if (!Sync.timer) Sync.start(); else Sync.cycle(); },
   'hist-f': (el) => Page.set({ f: el.dataset.v }),
   'w-step': (el) => Page.set({ step: el.dataset.v }),
-  'w-demo': () => { Page.close(); A['demo-enter'](); },
-  'w-done': () => { LS.set(K.welcomed, true); Page.close(); go('home'); },
+  'w-demo': () => { LS.set(K.welcomed, true); Page.close(); A['demo-enter'](); },
+  'w-done': () => { LS.set(K.welcomed, true); if (!Role.chosen) Role.set('distrib'); Page.close(); go('home'); },
 };
 const FORMS = {
-  'add-member': (f) => { const n = f.elements.mname.value.trim(); if (!n) return; addMember(n); f.reset(); toast(`${n} ajouté à l'équipe.`); },
-  'w-create': (f) => {
-    const list = f.elements.names.value.split('\n').map((x) => x.trim()).filter(Boolean);
+  'add-member': (f) => {
+    const list = f.elements.mname.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
     if (!list.length) return;
-    const ids = list.map(addMember);
-    if (Sync.configured && !Sync.code) setCode(genCode());
-    if (ids.length === 1) Me.set({ me: ids[0], partner: '' });
-    Page.set({ step: 'who' });
+    const add = list.filter((n) => !members().some((m) => norm(m.name) === norm(n)));
+    add.forEach(addMember); f.reset();
+    toast(add.length ? `${add.length} personne${add.length > 1 ? 's' : ''} ajoutée${add.length > 1 ? 's' : ''}.` : 'Ces prénoms sont déjà dans la liste.');
   },
+  'admin-code': (f) => { if (tryAdmin(f.elements.code.value)) { f.reset(); go('team'); toast('Accès responsable activé.'); } },
+  'w-create': (f) => {
+    const list = f.elements.names.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+    if (!list.length) return;
+    list.forEach(addMember);
+    if (Sync.configured && !Sync.code) setCode(genCode());
+    Page.set({ step: 'code' });
+  },
+  'w-code': (f) => { if (tryAdmin(f.elements.code.value)) Page.set({ step: 'who' }); },
   join: (f) => {
     const c = f.elements.code.value.trim().toUpperCase();
     if (c.length < 8) { toast('Ce code est trop court : il ressemble à SEP-XXXX-XXXX.'); return; }
@@ -2027,18 +2101,7 @@ document.addEventListener('input', (e) => {
   if (t.dataset.bind && AS) {
     const path = t.dataset.bind.split('.');
     if (path.length === 2) AS.d[path[0]][path[1]] = t.value; else AS.d[path[0]] = t.value;
-    if (t.dataset.bind === 'amt') {
-      $$('[data-act="as-amt"]').forEach((b) => b.setAttribute('aria-pressed', String(t.value !== '' && num(t.value) === +b.dataset.v)));
-      const btn = $('[data-act="as-save"]'), need = t.value.trim() === '';
-      btn.disabled = need; btn.textContent = need ? 'Indiquez le montant' : 'Enregistrer';
-    }
     if (t.dataset.bind === 'rp.date') $$('[data-act="as-rpdate"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === t.value)));
-    return;
-  }
-  if (t.id === 'td-amt') {
-    TD.amt = t.value.trim() === '' ? null : num(t.value);
-    $$('[data-act="td-amt"]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
-    const ok = $('#td-ok'); ok.disabled = TD.amt == null; ok.innerHTML = `${ico('check')} ${TD.amt != null ? 'Valider ' + eur(TD.amt) : 'Choisir un montant'}`;
     return;
   }
   if (t.id === 'td-rpnote') TD.rpNote = t.value;
@@ -2092,6 +2155,7 @@ function boot() {
   } else Sync.start();
   go(UI.view || 'home');
   maybeWelcome();
+  if (!Role.chosen && !Page.cur) Role.set('distrib');
   if (join && Sync.configured) { toast('Équipe rejointe : indiquez qui vous êtes.'); setTimeout(openMeSheet, 1200); }
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname))) navigator.serviceWorker.register('sw.js').catch(() => {});
   window.addEventListener('online', () => Sync.cycle());
