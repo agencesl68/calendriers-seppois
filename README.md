@@ -35,6 +35,20 @@ Un distributeur ouvre l'app, touche son prénom et celui des **1 à 3 personnes*
 - **Tous les téléphones** : de l'iPhone SE aux grands Android, à la verticale comme à l'horizontale, en thème clair ou sombre, avec des boutons dimensionnés pour le doigt et un repli pour les navigateurs plus anciens.
 - **Mode démo** avec des données fictives pour présenter l'app à l'amicale.
 
+## Remettre à zéro
+
+Dans **Réglages → Remettre à zéro**, trois niveaux :
+
+| | Ce que ça efface | Ce que ça garde | Qui |
+| --- | --- | --- | --- |
+| **Nouvelle campagne** | Tous les statuts, les repasses, l'historique | Les pompiers, les secteurs, la répartition | Responsable |
+| **Tout effacer** | Tout, y compris pompiers et secteurs | Les 1 522 adresses du secteur | Responsable |
+| **Effacer ce téléphone** | Les données de ce téléphone, et le détache de l'équipe | Ce que les autres téléphones ont | Tout le monde |
+
+Les deux premières valent **pour toute l'équipe** : tous les téléphones suivent à la synchro suivante. L'app propose une sauvegarde avant d'effacer, et « Tout effacer » demande de taper le mot EFFACER.
+
+**Chaque année**, avant de recommencer : *Nouvelle campagne*. Vous repartez de zéro en gardant vos équipes et votre découpage des rues.
+
 ## 1. Mettre l'app en ligne sur GitHub Pages (gratuit)
 
 1. Créez un dépôt sur GitHub, par exemple `calendriers-seppois`. Pour que GitHub Pages soit gratuit, le dépôt doit être **public**. Le code ne contient aucune donnée de l'équipe, seulement les adresses publiques des villages.

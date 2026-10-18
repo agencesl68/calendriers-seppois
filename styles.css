@@ -753,3 +753,9 @@ textarea.input[readonly] { font: 400 14px/1.5 ui-monospace, SFMono-Regular, Menl
 .street-tools.stack-sm { align-items: stretch; }
 .street-tools.stack-sm textarea.input { flex: 1; min-height: 56px; padding: 10px 14px; }
 .street-tools.stack-sm .btn { align-self: stretch; }
+
+/* ───────── Remise à zéro */
+.danger-card { border-color: color-mix(in srgb, var(--st-refus) 35%, var(--line)); }
+@supports not (border-color: color-mix(in srgb, red 50%, blue)) { .danger-card { border-color: var(--st-refus); } }
+.danger-card .card-h h2 { color: var(--st-refus); }
+.danger-card .confirm p { margin-bottom: 2px; }

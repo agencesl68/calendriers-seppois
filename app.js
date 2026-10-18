@@ -43,7 +43,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage plein ou bloqué */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* idem */ } },
 };
-const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed' };
+const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed' };
 
 // ═════════════════════════ Données du secteur (5 communes)
 const O_LAT = 47.5, O_LON = 7.1;
@@ -244,7 +244,11 @@ const unitIdx = () => memo('unitIdx', () => new Map(units().map((u) => [u.id, u]
 const unitsByAddr = () => memo('ubya', () => { const m = new Map(); for (const u of units()) { if (!m.has(u.a.id)) m.set(u.a.id, []); m.get(u.a.id).push(u); } return m; });
 const unitsOf = (addrId) => unitsByAddr().get(addrId) || [];
 const unitTitle = (u) => `${u.a.num} ${u.a.street}${u.n > 1 ? ' · ' + u.label : ''}`;
-const statusOf = (unitId) => Store.s.passages[unitId]?.status || 'todo';
+/** Date de la dernière remise à zéro : tout passage plus ancien est ignoré, sur tous les téléphones. */
+const resetAt = () => +Store.s.settings.reset || 0;
+/** Le passage d'un foyer, ou null s'il date d'avant la remise à zéro. */
+const pass = (unitId) => { const p = Store.s.passages[unitId]; return p && (p.u || 0) > resetAt() ? p : null; };
+const statusOf = (unitId) => pass(unitId)?.status || 'todo';
 const addrSt = (addrId) => { const c = blankSt(); for (const u of unitsOf(addrId)) c[statusOf(u.id)]++; return c; };
 const member = (id) => { const m = Store.s.members[id]; return m && !m.del ? m : null; };
 const members = () => memo('members', () => Object.values(Store.s.members).filter((m) => !m.del).sort((a, b) => a.name.localeCompare(b.name, 'fr')));
@@ -336,7 +340,7 @@ function stats() {
     const mem = (id) => (byMember[id] ||= { doors: 0, streets: new Map(), last: 0 });
     const grp = () => ({ total: 0, visited: 0, st: blankSt(), members: new Set() });
     for (const u of units()) {
-      const a = u.a, p = s.passages[u.id], status = p?.status || 'todo';
+      const a = u.a, p = pass(u.id), status = p?.status || 'todo';
       st[status]++;
       let bs = byStreet.get(a.sk); if (!bs) byStreet.set(a.sk, (bs = { ...grp(), sk: a.sk, name: a.street, com: a.com }));
       const bc = (byCom[a.com] ||= grp());
@@ -359,7 +363,7 @@ function repasses() {
   return memo('rep', () => {
     const s = Store.s, out = [], so = { matin: 1, midi: 2, aprem: 3, soir: 4, '': 5 };
     for (const u of units()) {
-      const p = s.passages[u.id];
+      const p = pass(u.id);
       if (p && (p.status === 'repasse' || (p.status === 'absent' && p.rp?.date))) out.push({ u, a: u.a, p, date: p.rp?.date || '', slot: p.rp?.slot || '' });
     }
     return out.sort((x, y) => (x.date || '9999').localeCompare(y.date || '9999') || so[x.slot] - so[y.slot] || x.a.ci - y.a.ci || sortKey(x.a.street).localeCompare(sortKey(y.a.street)) || numCmp(x.a, y.a) || x.u.k - y.u.k);
@@ -387,14 +391,14 @@ function searchAddrs(q) {
 function events() {
   return memo('events', () => {
     const out = [];
-    for (const u of units()) { const p = Store.s.passages[u.id]; if (p?.hist) for (const h of p.hist) if (h.s !== 'todo') out.push({ u, a: u.a, h }); }
+    for (const u of units()) { const p = pass(u.id); if (p?.hist) for (const h of p.hist) if (h.s !== 'todo') out.push({ u, a: u.a, h }); }
     return out.sort((x, y) => y.h.at - x.h.at);
   });
 }
 
 // ═════════════════════════ Écriture des passages, immeubles, secteurs
 function savePassage(unitId, d) {
-  const s = Store.s, u = unitIdx().get(unitId), prev = clone(s.passages[unitId] || null), now = Date.now();
+  const s = Store.s, u = unitIdx().get(unitId), prev = clone(pass(unitId) || null), now = Date.now();
   const status = d.status;
   const by = d.by?.length ? [...d.by] : Me.team();
   const hist = [...(prev?.hist || [])];
@@ -414,7 +418,7 @@ function savePassage(unitId, d) {
 }
 function restorePassage(id, prev) { Store.put('passage', id, prev ? { ...prev } : { status: 'todo', at: Date.now(), by: [], hist: [] }); }
 function quickRp(unitId, date) {
-  const p = clone(Store.s.passages[unitId]); if (!p) return;
+  const p = clone(pass(unitId)); if (!p) return;
   p.rp = { date, slot: p.rp?.slot || '', note: p.rp?.note || '', done: false };
   Store.put('passage', unitId, p);
   toast(`Repasse ${dayLabel(date).toLowerCase()} · ${unitTitle(unitIdx().get(unitId))}`);
@@ -422,7 +426,7 @@ function quickRp(unitId, date) {
 function setBld(addrId, n, labels) {
   const cur = Store.s.bld[addrId] || {};
   n = clamp(n | 0, 1, 99);
-  const lost = unitsOf(addrId).filter((u) => u.k > n && Store.s.passages[u.id]?.hist?.length).length;
+  const lost = unitsOf(addrId).filter((u) => u.k > n && pass(u.id)?.hist?.length).length;
   Store.put('bld', addrId, { id: addrId, n, labels: (labels || cur.labels || []).slice(0, n) });
   if (lost) toast(`${lost} logement${lost > 1 ? 's' : ''} retiré${lost > 1 ? 's' : ''} : leurs passages restent dans l'historique.`);
 }
@@ -893,7 +897,7 @@ function tourNext(dir = 1) {
 const tourScrollTop = () => requestAnimationFrame(() => { const v = $('#v-tour'), card = $('.door-card', v); if (card && card.getBoundingClientRect().top < v.getBoundingClientRect().top) v.scrollTo({ top: Math.max(0, card.offsetTop - 120), behavior: 'smooth' }); });
 function tourSave(status, extra = {}) {
   const id = UI.tour.cur; if (!id) return;
-  const p = Store.s.passages[id], u = unitIdx().get(id), team = Me.team();
+  const p = pass(id), u = unitIdx().get(id), team = Me.team();
   const prev = savePassage(id, { status, name: p?.name || '', note: p?.note || '', rp: extra.rp || null, by: team.length ? team : p?.by || [] });
   vibrate(18);
   toast(`${unitTitle(u)} · ${STATUS[status].short}${team.length ? '' : ' · sans nom'}`, {
@@ -928,7 +932,7 @@ function renderTour() {
     return;
   }
   if (TD.id !== cur.id) TD = freshTD(cur.id);
-  const status = statusOf(cur.id), p = Store.s.passages[cur.id];
+  const status = statusOf(cur.id), p = pass(cur.id);
   const last = p?.hist?.length ? p.hist[p.hist.length - 1] : null;
   const dist = T.near && Geo.pos ? Math.round(distM([Geo.pos.lat, Geo.pos.lon], [cur.a.lat, cur.a.lon])) : null;
   el.innerHTML = `<div class="view-in">
@@ -1002,7 +1006,7 @@ function tourSetup() {
 // ═════════════════════════ Repasses
 function renderRep() {
   const el = $('#v-rep'), list = repasses(), today = isoDay();
-  const absNo = units().filter((u) => { const p = Store.s.passages[u.id]; return p?.status === 'absent' && !p.rp?.date; });
+  const absNo = units().filter((u) => { const p = pass(u.id); return p?.status === 'absent' && !p.rp?.date; });
   const groups = new Map();
   for (const r of list) { const k = !r.date ? 'none' : r.date < today ? 'late' : r.date; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
   const keys = ['late', ...[...groups.keys()].filter((k) => k !== 'late' && k !== 'none').sort(), 'none'].filter((k) => groups.has(k));
@@ -1014,7 +1018,7 @@ function renderRep() {
     <div class="tour-top"><div><h2 class="display">Repasses</h2><p class="muted" style="margin:6px 0 0">${list.length} programmée${list.length > 1 ? 's' : ''} · ${absNo.length} absent${absNo.length > 1 ? 's' : ''} sans date</p></div>${due ? `<button class="btn red" data-act="route-today">${ico('route')} Itinéraire du jour · ${due}</button>` : ''}</div>
     ${!list.length && !absNo.length ? '<div class="card empty"><b>Aucune repasse</b>Quand un foyer est absent ou à revoir, programmez la repasse depuis la tournée : elle apparaîtra ici, jour par jour.</div>' : ''}
     ${keys.map((k) => `<div class="rp-group ${k === 'late' ? 'late' : ''}"><h3>${title(k)} <small>${groups.get(k).length}${k !== 'late' && k !== 'none' && k !== today ? ' · ' + DOWL[new Date(k + 'T12:00:00').getDay()] : ''}</small></h3>${groups.get(k).map(item).join('')}</div>`).join('')}
-    ${absNo.length ? `<div class="rp-group"><h3>Absents sans repasse <small>${absNo.length}</small></h3>${absNo.slice(0, 80).map((u) => { const p = Store.s.passages[u.id]; return `<div class="rp-item"><span class="rp-slot" style="color:var(--st-absent);background:color-mix(in srgb,var(--st-absent) 12%,transparent)">${dayShort(p.at)}</span><button class="rp-main" data-act="unit" data-id="${u.id}"><b>${esc(unitTitle(u))}</b><small>${esc([u.a.com, names(p.by)].filter(Boolean).join(' · '))}</small></button><div class="rp-quick"><button class="chip" data-act="rp-quick" data-id="${u.id}" data-v="${d1}">Demain</button>${sat ? `<button class="chip" data-act="rp-quick" data-id="${u.id}" data-v="${sat[0]}">Sam.</button>` : ''}</div></div>`; }).join('')}</div>` : ''}
+    ${absNo.length ? `<div class="rp-group"><h3>Absents sans repasse <small>${absNo.length}</small></h3>${absNo.slice(0, 80).map((u) => { const p = pass(u.id); return `<div class="rp-item"><span class="rp-slot" style="color:var(--st-absent);background:color-mix(in srgb,var(--st-absent) 12%,transparent)">${dayShort(p.at)}</span><button class="rp-main" data-act="unit" data-id="${u.id}"><b>${esc(unitTitle(u))}</b><small>${esc([u.a.com, names(p.by)].filter(Boolean).join(' · '))}</small></button><div class="rp-quick"><button class="chip" data-act="rp-quick" data-id="${u.id}" data-v="${d1}">Demain</button>${sat ? `<button class="chip" data-act="rp-quick" data-id="${u.id}" data-v="${sat[0]}">Sam.</button>` : ''}</div></div>`; }).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -1198,7 +1202,7 @@ function openBuilding(addrId, opts = {}) {
 let AS = null;
 function openUnit(unitId, opts = {}) {
   const u = unitIdx().get(unitId); if (!u) return;
-  const p = Store.s.passages[unitId], team = Me.team();
+  const p = pass(unitId), team = Me.team();
   AS = {
     id: unitId, opts, d: {
       status: opts.status || (p && p.status !== 'todo' ? p.status : null),
@@ -1214,7 +1218,7 @@ function openUnit(unitId, opts = {}) {
 }
 function drawUnitSheet() {
   if (!AS) return;
-  const { id, d, opts } = AS, u = unitIdx().get(id), a = u.a, p = Store.s.passages[id], z = zoneOf(a.id);
+  const { id, d, opts } = AS, u = unitIdx().get(id), a = u.a, p = pass(id), z = zoneOf(a.id);
   const panel = Sheet.panel(); if (!panel) return;
   const sc = $('.sheet-body', panel)?.scrollTop || 0;
   panel.innerHTML = `<div class="sheet-grab"></div>
@@ -1320,14 +1324,49 @@ PAGES.settings = (args) => {
       ${admin ? `<div class="set-row"><div class="t"><b>Sauvegarde complète</b><small>Fichier à garder en lieu sûr</small></div><button class="btn sm ghost" data-act="export-json">${ico('download', 'sm')} Sauver</button></div>
       <div class="set-row"><div class="t"><b>Restaurer une sauvegarde</b><small>Fusionne avec les données actuelles</small></div><button class="btn sm ghost" data-act="import-json">${ico('upload', 'sm')} Importer</button></div>` : ''}
       <div class="set-row"><div class="t"><b>Mode démo</b><small>${Store.demoOn ? 'Actif : données fictives' : 'Explorer l’app avec des données fictives'}</small></div><button class="btn sm ghost" data-act="${Store.demoOn ? 'demo-exit' : 'demo-enter'}">${Store.demoOn ? 'Quitter' : 'Lancer'}</button></div>
-      <div class="set-row"><div class="t"><b>Effacer ce téléphone</b><small>Supprime les données locales. Celles déjà envoyées restent dans la feuille Google.</small></div><button class="btn sm ghost" data-act="reset-ask">${ico('trash', 'sm')} Effacer</button></div>
-      ${args.reset ? `<div class="confirm"><p>Effacer toutes les données de ce téléphone ? Faites d'abord une sauvegarde si l'équipe n'est pas synchronisée.</p><div class="grid2"><button class="btn ghost" data-act="reset-no">Annuler</button><button class="btn red" data-act="reset-yes">Tout effacer</button></div></div>` : ''}
+      <div class="set-row"><div class="t"><b>Remettre à zéro</b><small>Nouvelle campagne, tout effacer, ou effacer ce téléphone</small></div><button class="btn sm ghost" data-act="page" data-v="reset">${ico('repeat', 'sm')} Ouvrir</button></div>
     </section>
     <section class="card"><div class="card-h"><h2>Affichage</h2></div>
       <div class="seg" style="width:100%">${[['auto', 'Automatique'], ['light', 'Clair'], ['dark', 'Sombre']].map(([v, l]) => `<button data-act="theme" data-v="${v}" aria-pressed="${theme === v}">${l}</button>`).join('')}</div>
       ${standalone ? '' : App.installPrompt ? `<button class="btn block" style="margin-top:12px" data-act="install">${ico('download')} Installer l'app sur ce téléphone</button>` : `<div class="note-box" style="margin-top:12px">${ios ? 'Sur iPhone : touchez le bouton Partager de Safari, puis « Sur l’écran d’accueil ».' : 'Dans le menu du navigateur, choisissez « Installer l’application ».'}</div>`}
     </section>
     <p class="muted" style="font-size:12.5px;margin:0">Adresses : Base Adresse Nationale (${COMMUNES.join(', ')}), ${BASE_ADDRS.length} adresses. Plan : © contributeurs OpenStreetMap. Photo aérienne : © IGN.</p>
+  </div>`,
+  };
+};
+PAGES.reset = (args) => {
+  const S = stats(), admin = Role.admin, step = args.step || '';
+  const nPass = Object.keys(Store.s.passages).filter((id) => pass(id)).length;
+  const last = resetAt();
+  return {
+    title: 'Remettre à zéro',
+    body: `<div class="stackv">
+    ${Store.demoOn ? '<div class="note-box"><b>Mode démo</b> : les deux premières remises à zéro sont sans effet ici. Quittez la démo pour les utiliser pour de vrai.</div>' : ''}
+    <div class="note-box">${last ? `Dernière remise à zéro : ${dayLabel(isoDay(new Date(last)))} à ${hhmm(last)}.` : 'Aucune remise à zéro pour l’instant.'} ${nPass} foyer${nPass > 1 ? 's' : ''} noté${nPass > 1 ? 's' : ''} actuellement, ${members().length} pompiers, ${zones().length} secteurs.</div>
+    <button class="btn ghost block" data-act="export-json">${ico('download')} Sauvegarder avant d’effacer</button>
+
+    <section class="card danger-card">
+      <div class="card-h"><h2>Nouvelle campagne</h2><span class="muted">${admin ? 'toute l’équipe' : 'responsable'}</span></div>
+      <p class="muted" style="margin:0 0 12px">Tous les foyers repassent à « À faire ». Les repasses et l’historique sont effacés. <b>Les pompiers, les secteurs et la répartition sont conservés.</b> C’est ce qu’il faut faire chaque année avant de recommencer.</p>
+      ${!admin ? '<div class="note-box">Réservé au responsable.</div>'
+        : step === 'camp' ? `<div class="confirm"><p>Remettre les ${nPass} foyer${nPass > 1 ? 's' : ''} à « À faire » ? Sur tous les téléphones de l’équipe. C’est sans retour.</p><div class="grid2"><button class="btn ghost" data-act="reset-step" data-v="">Annuler</button><button class="btn red" data-act="reset-campaign">Oui, remettre à zéro</button></div></div>`
+        : `<button class="btn block" data-act="reset-step" data-v="camp">${ico('repeat')} Démarrer une nouvelle campagne</button>`}
+    </section>
+
+    <section class="card danger-card">
+      <div class="card-h"><h2>Tout effacer</h2><span class="muted">${admin ? 'toute l’équipe' : 'responsable'}</span></div>
+      <p class="muted" style="margin:0 0 12px">Efface aussi <b>les pompiers, les secteurs et la répartition</b>, ainsi que les adresses ajoutées à la main et les immeubles. L’app revient à son état d’origine, avec seulement les ${nf(BASE_ADDRS.length)} adresses du secteur.</p>
+      ${!admin ? '<div class="note-box">Réservé au responsable.</div>'
+        : step === 'all' ? `<div class="confirm"><p>Pour confirmer, tapez <b>EFFACER</b> ci-dessous. Tous les téléphones de l’équipe seront remis à neuf.</p><form data-form="reset-all" style="display:grid;gap:10px"><input class="input code-input" name="mot" autocomplete="off" autocapitalize="characters" placeholder="EFFACER" aria-label="Tapez EFFACER" required><div class="grid2"><button class="btn ghost" type="button" data-act="reset-step" data-v="">Annuler</button><button class="btn red" type="submit">Tout effacer</button></div></form></div>`
+        : `<button class="btn block" data-act="reset-step" data-v="all">${ico('trash')} Tout effacer</button>`}
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>Effacer ce téléphone</h2><span class="muted">ce téléphone seulement</span></div>
+      <p class="muted" style="margin:0 0 12px">Enlève les données de ce téléphone et le détache de l’équipe. Les autres téléphones ne sont pas touchés${Sync.code ? ' ; si vous rejoignez de nouveau l’équipe, les données reviennent' : ''}.</p>
+      ${step === 'phone' ? `<div class="confirm"><p>Effacer les données de ce téléphone ?</p><div class="grid2"><button class="btn ghost" data-act="reset-step" data-v="">Annuler</button><button class="btn red" data-act="reset-phone">Effacer</button></div></div>`
+        : `<button class="btn ghost block" data-act="reset-step" data-v="phone">${ico('trash')} Effacer ce téléphone</button>`}
+    </section>
   </div>`,
   };
 };
@@ -1468,8 +1507,9 @@ PAGES.welcome = (args) => {
   if (step === 'create') return { bare: true, body: `<div class="welcome left">
     ${back('intro')}
     <h1 class="w-title sm">Les pompiers</h1>
-    <p>Un prénom par ligne. Vous pourrez en ajouter d'autres plus tard.</p>
-    <form data-form="w-create" style="display:grid;gap:12px"><textarea class="input" name="names" rows="8" placeholder="Thomas K.&#10;Julie W.&#10;Nicolas B." aria-label="Liste des pompiers" required></textarea><button class="btn red block" type="submit">Continuer</button></form>
+    <p>Un prénom par ligne. Vous pourrez en ajouter, en retirer ou en corriger à tout moment depuis l'onglet Répartition.</p>
+    <form data-form="w-create" style="display:grid;gap:12px"><textarea class="input" name="names" rows="8" placeholder="Thomas K.&#10;Julie W.&#10;Nicolas B." aria-label="Liste des pompiers"></textarea><button class="btn red block" type="submit">Continuer</button></form>
+    <button class="link" data-act="w-step" data-v="code">Je donnerai les prénoms plus tard</button>
   </div>` };
   if (step === 'code') return { bare: true, body: `<div class="welcome left">
     <h1 class="w-title sm">Code responsable</h1>
@@ -1485,8 +1525,8 @@ PAGES.welcome = (args) => {
   if (step === 'who') return { bare: true, body: `<div class="welcome left">
     <h1 class="w-title sm">Qui êtes-vous ?</h1>
     <p>Touchez votre prénom et celui des personnes qui tournent avec vous. Vous pouvez être 2 ou 3.</p>
-    ${members().length ? meBlock() : '<p class="muted">La liste des pompiers arrive…</p>'}
-    <button class="btn red block" data-act="w-done">${Me.team().length ? 'C’est parti' : 'Plus tard'}</button>
+    ${members().length ? meBlock() : '<div class="note-box">La liste des pompiers n’est pas encore faite. Le responsable l’ajoute depuis l’onglet Répartition ; elle arrivera ensuite toute seule sur ce téléphone.</div>'}
+    <button class="btn red block" data-act="w-done">${Me.team().length ? 'C’est parti' : 'Continuer'}</button>
   </div>` };
   return { bare: true, body: `<div class="welcome">
     <div class="w-crest"><img src="icons/logo.jpg" alt="Blason de l'Amicale des Sapeurs-Pompiers de Seppois-le-Bas"></div>
@@ -1866,7 +1906,7 @@ function exportCSV() {
   const s = Store.s, zi = zoneIndex();
   const head = ['Commune', 'Rue', 'Numéro', 'Logement', 'Statut', 'Fait par', 'Date du passage', 'Repasse le', 'Créneau', 'Consigne', 'Occupant', 'Note', 'Secteur', 'Équipe'];
   const rows = [...units()].sort((x, y) => x.a.ci - y.a.ci || sortKey(x.a.street).localeCompare(sortKey(y.a.street), 'fr') || numCmp(x.a, y.a) || x.k - y.k).map((u) => {
-    const a = u.a, p = s.passages[u.id] || {}, st = p.status || 'todo', zid = zi.get(a.id), z = zid ? s.zones[zid] : null;
+    const a = u.a, p = pass(u.id) || {}, st = p.status || 'todo', zid = zi.get(a.id), z = zid ? s.zones[zid] : null;
     return [a.com, a.street, a.num, u.label, STATUS[st].label, names(p.by), p.at && st !== 'todo' ? new Date(p.at).toLocaleString('fr-FR') : '',
       p.rp?.date || '', SLOTS[p.rp?.slot] || '', p.rp?.note || '', p.name || '', p.note || '', z ? z.name : '', z ? names(z.members) : ''];
   });
@@ -1899,6 +1939,37 @@ function importJSON(file) {
     $('#import-file').value = '';
   };
   r.readAsText(file);
+}
+/** Nouvelle campagne : tous les foyers repassent à « À faire », les équipes et la répartition restent. */
+function resetCampaign() {
+  Store.put('settings', 'main', { ...Store.s.settings, reset: Date.now() });
+  UI.tour = { street: null, near: false, order: 'sides', open: true, cur: null }; saveUI();
+}
+/** Tout effacer : les passages, les pompiers, les secteurs et les adresses ajoutées à la main. */
+function resetAll() {
+  resetCampaign();
+  for (const z of zones()) Store.put('zone', z.id, { ...z, del: true });
+  for (const m of members()) Store.put('member', m.id, { ...m, del: true });
+  for (const [id, e] of Object.entries(Store.s.extra)) if (!e.del) Store.put('addr', id, { ...e, del: true });
+  for (const [id, b] of Object.entries(Store.s.bld)) if (!b.del) Store.put('bld', id, { ...b, del: true });
+  Me.set([]);
+}
+/** Efface les passages devenus inutiles après une remise à zéro, pour ne pas encombrer le téléphone. */
+function prunePassages() {
+  const r = +Store.live.settings.reset || 0; if (!r) return;
+  let n = 0;
+  for (const [id, p] of Object.entries(Store.live.passages)) if ((p.u || 0) <= r) { delete Store.live.passages[id]; n++; }
+  if (n) { Store.rev++; Store.save(); }
+}
+/** Remet ce téléphone à neuf : rien n'est envoyé aux autres. */
+function wipePhone() {
+  Sync.stop();
+  for (const k of Object.values(K)) if (k !== K.theme) LS.del(k);
+  LS.del(K.me + '.demo');
+  Store.live = EMPTY(); Store.demo = null; Store.mode = 'live'; Store.rev++;
+  Sync.queue = {}; Sync.code = ''; Sync.since = 0; Sync.sheet = ''; Sync.set('local');
+  UI.tour = { street: null, near: false, order: 'sides', open: true, cur: null };
+  UI.com = ''; UI.zone = ''; UI.filter = 'all'; UI.street = null; UI.q = '';
 }
 function applyTheme() {
   const t = LS.get(K.theme, 'auto');
@@ -2023,17 +2094,14 @@ const A = {
   'export-csv': () => exportCSV(),
   'export-json': () => exportJSON(),
   'import-json': () => $('#import-file').click(),
-  'reset-ask': () => Page.set({ reset: true }),
-  'reset-no': () => Page.set({ reset: false }),
-  'reset-yes': () => {
-    Sync.stop();
-    for (const k of Object.values(K)) if (k !== K.theme) LS.del(k);
-    LS.del(K.me + '.demo');
-    Store.live = EMPTY(); Store.demo = null; Store.mode = 'live'; Store.rev++;
-    Sync.queue = {}; Sync.code = ''; Sync.since = 0; Sync.sheet = ''; Sync.set('local');
-    UI.tour = { street: null, near: false, order: 'sides', open: true, cur: null };
-    Page.close(); go('home'); maybeWelcome();
+  'reset-step': (el) => Page.set({ step: el.dataset.v }),
+  'reset-campaign': () => {
+    if (Store.demoOn) { toast('En mode démo, rien à remettre à zéro.'); return; }
+    resetCampaign(); prunePassages();
+    Page.close(); go('home');
+    toast('Nouvelle campagne : tous les foyers sont à « À faire ».');
   },
+  'reset-phone': () => { wipePhone(); Page.close(); go('home'); maybeWelcome(); toast('Ce téléphone a été remis à neuf.'); },
   theme: (el) => { LS.set(K.theme, el.dataset.v); applyTheme(); MapView.restyle(); App.changed(); },
   install: async () => { const p = App.installPrompt; if (!p) return; p.prompt(); try { await p.userChoice; } catch (e) { /* refusé */ } App.installPrompt = null; Page.refresh(); },
   'code-create': () => { setCode(genCode()); Page.refresh(); toast('Code créé. Faites scanner le QR code aux autres pompiers.'); },
@@ -2059,7 +2127,6 @@ const FORMS = {
   'admin-code': (f) => { if (tryAdmin(f.elements.code.value)) { f.reset(); go('team'); toast('Accès responsable activé.'); } },
   'w-create': (f) => {
     const list = f.elements.names.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
-    if (!list.length) return;
     list.forEach(addMember);
     if (Sync.configured && !Sync.code) setCode(genCode());
     Page.set({ step: 'code' });
@@ -2084,6 +2151,13 @@ const FORMS = {
     } catch (e) { toast('La feuille ne répond pas. Vérifiez le déploiement : accès « Tout le monde », puis réessayez.'); }
   },
   'add-addr': (f) => { addAddress(f.elements.com.value, f.elements.street.value, f.elements.num.value); f.reset(); },
+  'reset-all': (f) => {
+    if (norm(f.elements.mot.value) !== 'effacer') { toast('Tapez EFFACER pour confirmer.'); return; }
+    if (Store.demoOn) { toast('En mode démo, rien à effacer.'); return; }
+    resetAll(); prunePassages();
+    Page.close(); go('home'); maybeWelcome();
+    toast('Tout a été effacé. L’app est revenue à son état d’origine.');
+  },
 };
 
 // ═════════════════════════ Écouteurs
@@ -2144,9 +2218,22 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ═════════════════════════ Démarrage
+/* Version du format des données. Quand elle change, ce téléphone repart à neuf :
+   le modèle n'est plus compatible avec ce qui était enregistré. */
+const DATA_VERSION = 3;
+function migrate() {
+  const v = LS.get(K.ver, 0);
+  if (v === DATA_VERSION) return false;
+  for (const k of Object.values(K)) if (k !== K.theme && k !== K.ver) LS.del(k);
+  LS.del(K.me + '.demo');
+  LS.set(K.ver, DATA_VERSION);
+  return v !== 0;
+}
 function boot() {
   applyTheme();
+  const wiped = migrate();
   Store.init();
+  prunePassages();
   const h = new URLSearchParams(location.hash.slice(1));
   const join = h.get('join');
   if (join) {
@@ -2157,6 +2244,7 @@ function boot() {
   maybeWelcome();
   if (!Role.chosen && !Page.cur) Role.set('distrib');
   if (join && Sync.configured) { toast('Équipe rejointe : indiquez qui vous êtes.'); setTimeout(openMeSheet, 1200); }
+  else if (wiped) toast('Nouvelle version : l’app est repartie à zéro sur ce téléphone.', { ms: 6000 });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname))) navigator.serviceWorker.register('sw.js').catch(() => {});
   window.addEventListener('online', () => Sync.cycle());
   window.addEventListener('offline', () => { if (Sync.timer) Sync.set('offline'); });
