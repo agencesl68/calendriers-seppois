@@ -182,7 +182,7 @@ function setSheetUrl(url) { LS.set(K.cfg, { url: url.trim() }); }
 const UI = Object.assign({ view: 'home', mapMode: 'map', filter: 'all', zone: '', com: '', street: null, q: '', sort: 'alpha' }, LS.get(K.ui, {}));
 UI.tour = Object.assign({ street: null, near: false, order: 'sides', open: true, cur: null }, UI.tour || {});
 UI.street = null;
-const saveUI = () => LS.set(K.ui, { view: UI.view, mapMode: UI.mapMode, filter: UI.filter, zone: UI.zone, com: UI.com, sort: UI.sort, tour: UI.tour });
+const saveUI = () => LS.set(K.ui, { view: UI.view, mapMode: UI.mapMode, filter: UI.filter, zone: UI.zone, com: UI.com, sort: UI.sort, autoN: UI.autoN, tour: UI.tour });
 
 const MAX_TEAM = 4;
 /** L'équipe qui tourne avec ce téléphone : 1 à 4 personnes (le plus souvent 2 ou 3). */
@@ -1516,6 +1516,21 @@ PAGES.welcome = (args) => {
     <p>Choisissez un code à 4 chiffres. Donnez-le seulement aux personnes qui répartissent les rues. Les autres n'en ont pas besoin.</p>
     <form data-form="w-code" style="display:grid;gap:12px"><input class="input code-input" name="code" inputmode="numeric" autocomplete="off" placeholder="0000" aria-label="Code responsable" required><button class="btn red block" type="submit">Créer le code</button></form>
   </div>` };
+  if (step === 'zones') {
+    const n = UI.autoN || 6, S = stats();
+    return { bare: true, body: `<div class="welcome left">
+      <h1 class="w-title sm">Répartition de départ</h1>
+      <p>Pour ne pas partir d'une page blanche. Vous pourrez tout ajuster ensuite : déplacer une rue, découper un secteur, le renommer, y mettre une équipe.</p>
+      <div class="w-actions">
+        <button class="btn red block" data-act="w-zones-com">${ico('map')} Un secteur par commune <small>${COMMUNES.length} secteurs</small></button>
+        <div class="card" style="display:grid;gap:12px">
+          <div class="set-row" style="border:0;padding:0"><div class="t"><b>Ou un découpage équilibré</b><small>Les rues restent entières · ≈ ${nf(Math.round(S.total / n))} foyers par secteur</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${n}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
+          <button class="btn ghost block" data-act="w-zones-auto">${ico('sparkle')} Créer ${n} secteurs équilibrés</button>
+        </div>
+        <button class="link" data-act="w-step" data-v="who">Je répartirai plus tard</button>
+      </div>
+    </div>` };
+  }
   if (step === 'join') return { bare: true, body: `<div class="welcome left">
     ${back('intro')}
     <h1 class="w-title sm">Rejoindre</h1>
@@ -2086,7 +2101,7 @@ const A = {
     toast(`${isNew ? 'Secteur créé' : 'Secteur enregistré'} : ${name}${moved ? ` · ${moved} adresse${moved > 1 ? 's' : ''} déplacée${moved > 1 ? 's' : ''} depuis un autre secteur` : ''}`);
   },
   'auto-open': () => { UI.auto = !UI.auto; UI.autoN = UI.autoN || 6; App.changed(); },
-  'auto-n': (el) => { UI.autoN = clamp((UI.autoN || 6) + +el.dataset.v, 2, 12); App.changed(); },
+  'auto-n': (el) => { UI.autoN = clamp((UI.autoN || 6) + +el.dataset.v, 2, 12); saveUI(); if (Page.cur) Page.render(false); App.changed(); },
   'auto-com': () => { replaceZones(COMMUNES.map((c) => addrs().filter((a) => a.com === c).map((a) => a.id)), (ids, i) => COMMUNES[i]); UI.auto = false; App.changed(); toast(`${COMMUNES.length} secteurs créés, un par commune. Affectez une équipe à chacun.`); },
   'auto-go': () => { const n = UI.autoN || 6; replaceZones(autoGroups(n, true), (ids, i) => { const cs = comsOf(ids); return `Secteur ${i + 1}${cs.length === 1 ? ' · ' + cs[0] : ''}`; }); UI.auto = false; App.changed(); toast(`${n} secteurs créés, rues entières. Affectez une équipe à chacun.`); },
   'unassigned-map': () => { UI.zone = '__none'; UI.filter = 'all'; UI.mapMode = 'map'; saveUI(); Page.close(); go('map'); },
@@ -2114,6 +2129,8 @@ const A = {
   'hist-f': (el) => Page.set({ f: el.dataset.v }),
   'w-step': (el) => Page.set({ step: el.dataset.v }),
   'w-demo': () => { LS.set(K.welcomed, true); Page.close(); A['demo-enter'](); },
+  'w-zones-com': () => { A['auto-com'](); Page.set({ step: 'who' }); },
+  'w-zones-auto': () => { A['auto-go'](); Page.set({ step: 'who' }); },
   'w-done': () => { LS.set(K.welcomed, true); if (!Role.chosen) Role.set('distrib'); Page.close(); go('home'); },
 };
 const FORMS = {
@@ -2131,7 +2148,7 @@ const FORMS = {
     if (Sync.configured && !Sync.code) setCode(genCode());
     Page.set({ step: 'code' });
   },
-  'w-code': (f) => { if (tryAdmin(f.elements.code.value)) Page.set({ step: 'who' }); },
+  'w-code': (f) => { if (tryAdmin(f.elements.code.value)) Page.set({ step: zones().length ? 'who' : 'zones' }); },
   join: (f) => {
     const c = f.elements.code.value.trim().toUpperCase();
     if (c.length < 8) { toast('Ce code est trop court : il ressemble à SEP-XXXX-XXXX.'); return; }

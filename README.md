@@ -10,6 +10,8 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour org
 | Comment | Code à 4 chiffres | Rien à saisir |
 | Ce qu'il fait | Crée les secteurs, y affecte les équipes, ajoute les pompiers, exporte | Choisit son prénom et celui des personnes avec lui, puis fait sa tournée |
 
+À la première ouverture, le responsable crée son code, puis l'app propose une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
+
 Un distributeur ouvre l'app, touche son prénom et celui des **1 à 3 personnes** qui tournent avec lui, et c'est tout. Chaque porte notée est automatiquement au nom de toute l'équipe. Pour passer responsable : onglet **Mon équipe**, puis le code.
 
 ## Ce que fait l'app

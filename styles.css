@@ -759,3 +759,5 @@ textarea.input[readonly] { font: 400 14px/1.5 ui-monospace, SFMono-Regular, Menl
 @supports not (border-color: color-mix(in srgb, red 50%, blue)) { .danger-card { border-color: var(--st-refus); } }
 .danger-card .card-h h2 { color: var(--st-refus); }
 .danger-card .confirm p { margin-bottom: 2px; }
+.w-actions .btn small { font-weight: 600; opacity: .75; margin-left: 6px; font-size: 13px; }
+.w-actions .card { text-align: left; }
