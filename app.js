@@ -43,7 +43,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage plein ou bloqué */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* idem */ } },
 };
-const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed' };
+const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed', made: 'cal.made' };
 
 // ═════════════════════════ Données du secteur (5 communes)
 const O_LAT = 47.5, O_LON = 7.1;
@@ -162,9 +162,9 @@ const Sync = {
         LS.set(K.queue, this.queue);
         let changed = false;
         for (const it of j.items || []) if (Store.applyRemote(it)) changed = true;
+        if (changed) { Store.rev++; clearTimeout(Store._t); LS.set(K.state, Store.live); App.changed(); }
         if (j.now) { this.since = j.now; LS.set(K.since, j.now); }
         if (j.sheet && j.sheet !== this.sheet) { this.sheet = j.sheet; LS.set(K.sheet, j.sheet); }
-        if (changed) { Store.rev++; Store.save(); App.changed(); }
         if (!this.pending || !batch.length) break;
       }
       this.lastOk = Date.now(); this.set('online');
@@ -175,7 +175,13 @@ const Sync = {
 };
 const genCode = () => { const al = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; const r = crypto.getRandomValues(new Uint32Array(8)); let s = ''; for (let i = 0; i < 8; i++) s += al[r[i] % al.length]; return `SEP-${s.slice(0, 4)}-${s.slice(4)}`; };
 const joinLink = () => `${location.origin}${location.pathname}#join=${encodeURIComponent(Sync.code)}&s=${encodeURIComponent(Sync.url())}`;
-function setCode(code) { Sync.code = code; LS.set(K.code, code); Sync.since = 0; LS.del(K.since); Sync.enqueueAll(); Sync.start(); }
+function setCode(code, made = false) {
+  Sync.stop();
+  Sync.code = code; LS.set(K.code, code); LS.set(K.made, made ? code : '');
+  Sync.since = 0; LS.del(K.since);
+  Sync.queue = {}; LS.set(K.queue, {}); // rien d'ancien (essais, autre équipe) ne part dans la feuille
+  Sync.enqueueAll(); Sync.start();
+}
 function setSheetUrl(url) { LS.set(K.cfg, { url: url.trim() }); }
 
 // ═════════════════════════ Préférences du téléphone
@@ -217,6 +223,9 @@ function tryAdmin(code) {
   const c = String(code || '').trim();
   if (!/^\d{4,8}$/.test(c)) { toast('Le code est composé de 4 à 8 chiffres.'); return false; }
   const cur = adminCode();
+  if (!cur && Sync.configured && Sync.code && !Sync.since && LS.get(K.made, '') !== Sync.code && !Store.demoOn) {
+    toast('Réception des réglages de l’équipe… Réessayez dans un instant.'); Sync.cycle(); return false;
+  }
   if (!cur) Store.put('settings', 'main', { ...Store.s.settings, code: c });
   else if (cur !== c) { toast('Code incorrect.'); return false; }
   Role.set('admin');
@@ -2009,7 +2018,7 @@ function prunePassages() {
 /** Remet ce téléphone à neuf : rien n'est envoyé aux autres. */
 function wipePhone() {
   Sync.stop();
-  for (const k of Object.values(K)) if (k !== K.theme) LS.del(k);
+  for (const k of Object.values(K)) if (k !== K.theme && k !== K.ver) LS.del(k);
   LS.del(K.me + '.demo');
   Store.live = EMPTY(); Store.demo = null; Store.mode = 'live'; Store.rev++;
   Sync.queue = {}; Sync.code = ''; Sync.since = 0; Sync.sheet = ''; Sync.set('local');
@@ -2149,7 +2158,7 @@ const A = {
   'reset-phone': () => { wipePhone(); Page.close(); go('home'); maybeWelcome(); toast('Ce téléphone a été remis à neuf.'); },
   theme: (el) => { LS.set(K.theme, el.dataset.v); applyTheme(); MapView.restyle(); App.changed(); },
   install: async () => { const p = App.installPrompt; if (!p) return; p.prompt(); try { await p.userChoice; } catch (e) { /* refusé */ } App.installPrompt = null; Page.refresh(); },
-  'code-create': () => { setCode(genCode()); Page.refresh(); toast('Code créé. Faites scanner le QR code aux autres pompiers.'); },
+  'code-create': () => { setCode(genCode(), true); Page.refresh(); toast('Code créé. Faites scanner le QR code aux autres pompiers.'); },
   'share-link': async () => {
     const link = joinLink();
     if (navigator.share) { try { await navigator.share({ title: 'Tournée des calendriers', text: `Rejoins l'équipe des calendriers (code ${Sync.code})`, url: link }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
@@ -2175,7 +2184,7 @@ const FORMS = {
   'w-create': (f) => {
     const list = f.elements.names.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
     list.forEach(addMember);
-    if (Sync.configured && !Sync.code) setCode(genCode());
+    if (Sync.configured && !Sync.code) setCode(genCode(), true);
     Page.set({ step: 'code' });
   },
   'w-code': (f) => { if (tryAdmin(f.elements.code.value)) Page.set({ step: zones().length ? 'who' : 'zones' }); },
@@ -2192,8 +2201,9 @@ const FORMS = {
     try {
       const res = await fetch(url); const j = await res.json();
       if (!j.ok) throw new Error('réponse');
+      const moved = url !== Sync.url();
       setSheetUrl(url); if (j.sheet) { Sync.sheet = j.sheet; LS.set(K.sheet, j.sheet); }
-      if (Sync.code) Sync.start();
+      if (Sync.code) { if (moved) { Sync.since = 0; LS.del(K.since); Sync.enqueueAll(); } Sync.start(); }
       Page.refresh(); toast(Sync.code ? 'Feuille reliée.' : 'Feuille reliée. Créez maintenant le code de l’équipe.');
     } catch (e) { toast('La feuille ne répond pas. Vérifiez le déploiement : accès « Tout le monde », puis réessayez.'); }
   },
@@ -2274,6 +2284,7 @@ function migrate() {
   for (const k of Object.values(K)) if (k !== K.theme && k !== K.ver) LS.del(k);
   LS.del(K.me + '.demo');
   LS.set(K.ver, DATA_VERSION);
+  Object.assign(Sync, { queue: {}, code: '', since: 0, sheet: '' });
   return v !== 0;
 }
 function boot() {

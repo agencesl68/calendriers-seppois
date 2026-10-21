@@ -62,6 +62,7 @@ function synchroniser_(req) {
       if (ligne[6].length > 49000) return; // limite d'une cellule Google Sheets
       if (cle in index) {
         const i = index[cle];
+        if (i >= rows.length) { const k = i - rows.length; if (Number(nouvelles[k][3]) < maj) nouvelles[k] = ligne; return; }
         if (Number(rows[i][3]) >= maj) return;
         rows[i] = ligne; modifie = true;
       } else {
@@ -83,7 +84,8 @@ function synchroniser_(req) {
     });
     return { ok: true, now: now, items: sortie, sheet: ss.getUrl() };
   } finally {
-    lock.releaseLock();
+    // Les écritures sont validées AVANT de rendre la main : sinon une synchro simultanée relirait l'ancienne feuille.
+    try { SpreadsheetApp.flush(); } finally { lock.releaseLock(); }
   }
 }
 
@@ -100,18 +102,21 @@ function mettreAJourTableau() {
   const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues();
   const membres = {}, zonesParId = {}, passages = [];
   const zoneDe = {};
+  let reset = 0; // « Nouvelle campagne » : les passages plus anciens ne comptent plus (même règle que les téléphones)
   rows.forEach((r) => {
     let d = {};
     try { d = JSON.parse(r[6] || '{}'); } catch (err) { return; }
+    if (r[1] === 'settings') reset = Number(d.reset) || 0;
     if (r[1] === 'member' && !d.del) membres[r[2]] = d.name;
     if (r[1] === 'zone' && !d.del) { zonesParId[r[2]] = d; (d.addrs || []).forEach((a) => { zoneDe[a] = r[2]; }); }
-    if (r[1] === 'passage') passages.push({ id: String(r[2]), d: d });
+    if (r[1] === 'passage') passages.push({ id: String(r[2]), d: d, u: Number(r[3]) || Number(d.u) || 0 });
   });
   const equipeDe = (zid) => (zonesParId[zid] && (zonesParId[zid].members || []).map((m) => membres[m] || '?').join(' + ')) || '';
 
   const tableau = [['Commune', 'Rue', 'N°', 'Logement', 'Statut', 'Fait par', 'Date', 'Repasse prévue', 'Consigne', 'Note', 'Secteur', 'Équipe du secteur']];
   const bilan = { statut: {}, commune: {}, membre: {} };
   passages.forEach((p) => {
+    if (p.u <= reset) return;
     const d = p.d, l = d._l || {}, statut = d.status || 'todo';
     if (statut === 'todo' && !(d.hist || []).length) return;
     const par = (d.by || []).map((id) => membres[id] || '?').join(' + ');
@@ -132,6 +137,10 @@ function mettreAJourTableau() {
   });
   tableau.splice(1, tableau.length - 1, ...tableau.slice(1).sort((a, b) => String(a[0] + a[1]).localeCompare(String(b[0] + b[1]), 'fr') || (parseInt(a[2], 10) || 0) - (parseInt(b[2], 10) || 0)));
 
+  // Textes saisis (« - chien », « +41… », « 2/1 ») gardés tels quels, sans devenir formule, nombre ou date
+  const texte = (ligne) => ligne.map((v) => (typeof v === 'string' && v !== '' ? "'" + v : v));
+  for (let i = 1; i < tableau.length; i++) tableau[i] = texte(tableau[i]);
+
   const t = ss.getSheetByName('Tableau') || ss.insertSheet('Tableau', 0);
   t.clear();
   t.getRange(1, 1, tableau.length, tableau[0].length).setValues(tableau);
@@ -149,13 +158,14 @@ function mettreAJourTableau() {
   Object.keys(bilan.commune).sort().forEach((k) => lignes.push([k, bilan.commune[k].faits]));
   lignes.push(['', ''], ['Foyers faits par pompier', '']);
   Object.keys(bilan.membre).sort((x, y) => bilan.membre[y] - bilan.membre[x]).forEach((k) => lignes.push([k, bilan.membre[k]]));
-  b.getRange(1, 1, lignes.length, 2).setValues(lignes);
+  b.getRange(1, 1, lignes.length, 2).setValues(lignes.map(texte));
   b.getRange('A1').setFontWeight('bold').setFontSize(14);
   b.getRange('A4:B4').setFontWeight('bold');
   b.getRange('B2').setNumberFormat('dd/MM/yyyy HH:mm');
   b.setColumnWidth(1, 260); b.setColumnWidth(2, 300);
 
-  reglages.getRange('A4:B4').setValues([['Tableau mis à jour', Date.now()]]);
+  // On note la modification lue au départ : une synchro arrivée pendant la reconstruction relancera la suivante
+  reglages.getRange('A4:B4').setValues([['Tableau mis à jour', derniere || Date.now()]]);
 }
 
 /** À exécuter une fois : met à jour les onglets Tableau et Répartition toutes les 10 minutes. */
