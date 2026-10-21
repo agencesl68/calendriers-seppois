@@ -1408,7 +1408,9 @@ function syncSection() {
     <ol class="steps"><li>Créez une feuille sur <b>sheets.new</b>.</li><li>Menu <b>Extensions › Apps Script</b> : collez le fichier <code>google-apps-script/Code.gs</code> et enregistrez.</li><li><b>Déployer › Nouveau déploiement › Application Web</b> : exécuter en tant que « Moi », accès « Tout le monde », puis autorisez.</li><li>Collez ci-dessous l'adresse qui finit par <b>/exec</b>.</li></ol>
     <form class="street-tools" data-form="sheet-url"><input class="input" name="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" aria-label="Adresse du script Google" required><button class="btn" type="submit">Relier</button></form>`;
   } else if (!code) {
-    h += `<p style="margin:0 0 12px">Feuille reliée. Créez le code de l'équipe pour commencer à partager les données.</p><button class="btn block" data-act="code-create">Créer le code de l'équipe</button>`;
+    h += Role.admin
+      ? `<p style="margin:0 0 12px">Feuille reliée. Créez le code de l'équipe pour commencer à partager les données.</p><button class="btn block" data-act="code-create">Créer le code de l'équipe</button>`
+      : `<p style="margin:0">Pas encore relié à l'équipe : <b>scannez le QR code du responsable</b> avec l'appareil photo du téléphone.</p>`;
   }
   if (configured && code) {
     h += `<div style="display:grid;gap:12px"><div class="code-box">${esc(code)}</div><div class="qr">${qrSvg(joinLink())}</div><p class="muted" style="text-align:center;margin:0;font-size:13.5px">Les autres pompiers scannent ce QR code avec l'appareil photo de leur téléphone : l'app s'ouvre déjà reliée à l'équipe.</p>
@@ -1561,13 +1563,14 @@ PAGES.welcome = (args) => {
   if (step === 'join') return { bare: true, body: `<div class="welcome left">
     ${back('intro')}
     <h1 class="w-title sm">Rejoindre</h1>
-    <p>Le plus simple : scannez le QR code du responsable avec l'appareil photo. Sinon, saisissez l'adresse de la feuille et le code de l'équipe.</p>
-    <form data-form="join" style="display:grid;gap:12px"><input class="input" name="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" aria-label="Adresse de la feuille"><input class="input code-input" name="code" placeholder="SEP-XXXX-XXXX" autocapitalize="characters" autocomplete="off" aria-label="Code d'équipe" required><button class="btn red block" type="submit">Rejoindre</button></form>
+    <p>Le plus simple : scannez le QR code du responsable avec l'appareil photo. Sinon, saisissez ${Sync.configured ? 'le code de l’équipe' : 'l’adresse de la feuille et le code de l’équipe'}.</p>
+    <form data-form="join" style="display:grid;gap:12px">${Sync.configured ? `<input type="hidden" name="url" value="${esc(Sync.url())}">` : '<input class="input" name="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" aria-label="Adresse de la feuille">'}<input class="input code-input" name="code" placeholder="SEP-XXXX-XXXX" autocapitalize="characters" autocomplete="off" aria-label="Code d'équipe" required><button class="btn red block" type="submit">Rejoindre</button></form>
   </div>` };
   if (step === 'who') return { bare: true, body: `<div class="welcome left">
     <h1 class="w-title sm">Qui êtes-vous ?</h1>
     <p>Touchez votre prénom et celui des personnes qui tournent avec vous. Vous pouvez être 2 ou 3.</p>
-    ${members().length ? meBlock() : '<div class="note-box">La liste des pompiers n’est pas encore faite. Le responsable l’ajoute depuis l’onglet Répartition ; elle arrivera ensuite toute seule sur ce téléphone.</div>'}
+    ${Sync.configured && !Sync.code && !Store.demoOn ? `<div class="note-box"><b>D’abord, reliez ce téléphone à l’équipe :</b> scannez le QR code du responsable avec l’appareil photo. Vos prénoms et vos rues arriveront ensuite tout seuls.</div><button class="btn ghost block" data-act="w-step" data-v="join">${ico('link')} J’ai le code de l’équipe</button>`
+      : members().length ? meBlock() : '<div class="note-box">La liste des pompiers n’est pas encore faite. Le responsable l’ajoute depuis l’onglet Répartition ; elle arrivera ensuite toute seule sur ce téléphone.</div>'}
     <button class="btn red block" data-act="w-done">${Me.team().length ? 'C’est parti' : 'Continuer'}</button>
   </div>` };
   return { bare: true, body: `<div class="welcome">
@@ -2158,7 +2161,7 @@ const A = {
   'reset-phone': () => { wipePhone(); Page.close(); go('home'); maybeWelcome(); toast('Ce téléphone a été remis à neuf.'); },
   theme: (el) => { LS.set(K.theme, el.dataset.v); applyTheme(); MapView.restyle(); App.changed(); },
   install: async () => { const p = App.installPrompt; if (!p) return; p.prompt(); try { await p.userChoice; } catch (e) { /* refusé */ } App.installPrompt = null; Page.refresh(); },
-  'code-create': () => { setCode(genCode(), true); Page.refresh(); toast('Code créé. Faites scanner le QR code aux autres pompiers.'); },
+  'code-create': () => { if (!Role.admin) return; setCode(genCode(), true); Page.refresh(); toast('Code créé. Faites scanner le QR code aux autres pompiers.'); },
   'share-link': async () => {
     const link = joinLink();
     if (navigator.share) { try { await navigator.share({ title: 'Tournée des calendriers', text: `Rejoins l'équipe des calendriers (code ${Sync.code})`, url: link }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
@@ -2187,7 +2190,7 @@ const FORMS = {
     if (Sync.configured && !Sync.code) setCode(genCode(), true);
     Page.set({ step: 'code' });
   },
-  'w-code': (f) => { if (tryAdmin(f.elements.code.value)) Page.set({ step: zones().length ? 'who' : 'zones' }); },
+  'w-code': (f) => { if (!tryAdmin(f.elements.code.value)) return; if (Sync.configured && !Sync.code) setCode(genCode(), true); Page.set({ step: zones().length ? 'who' : 'zones' }); },
   join: (f) => {
     const c = f.elements.code.value.trim().toUpperCase();
     if (c.length < 8) { toast('Ce code est trop court : il ressemble à SEP-XXXX-XXXX.'); return; }
