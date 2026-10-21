@@ -689,7 +689,7 @@ function renderHome() {
   const ranked = members().map((m) => [m, S.byMember[m.id]]).filter(([, b]) => b?.doors).sort((a, b) => b[1].doors - a[1].doors).slice(0, 5);
   const tourSt = UI.tour.street && streetOf(UI.tour.street);
   const hero = mp || S, heroLbl = mp ? 'Mes rues' : 'Avancement';
-  el.innerHTML = `<div class="view-in">${oldIconCard()}<div class="home-grid">
+  el.innerHTML = `<div class="view-in">${oldIconCard()}${linkCard()}<div class="home-grid">
   <div class="home-col">
     <section class="hero" aria-label="Avancement">
       <div class="hero-chief">
@@ -2040,6 +2040,20 @@ const OldIcon = {
   },
   get show() { return this.on && Date.now() - (+LS.get(K.fixLater, 0) || 0) > 864e5; },
 };
+/** Accueil : tant que ce téléphone n'est pas relié à la feuille de l'équipe, on le dit en grand. */
+function linkCard() {
+  if (Store.demoOn || !Sync.configured || Sync.code) return '';
+  if (Role.admin) return `<section class="card fix-card">
+    <div class="card-h"><h2>Relier l’équipe à la feuille</h2></div>
+    <p class="muted" style="margin:0 0 12px">Rien n’est encore partagé : la répartition et les passages restent sur ce téléphone. Créez le code de l’équipe, puis faites scanner le QR code aux distributeurs.</p>
+    <button class="btn red block" data-act="code-create">${ico('link')} Créer le code et relier la feuille</button>
+  </section>`;
+  return `<section class="card fix-card">
+    <div class="card-h"><h2>Relier ce téléphone</h2></div>
+    <p class="muted" style="margin:0 0 12px">Scannez le QR code du responsable avec l’appareil photo : vos prénoms et vos rues arriveront tout seuls.</p>
+    <button class="btn ghost block" data-act="page" data-v="welcome" data-step="join">${ico('link')} J’ai le code de l’équipe</button>
+  </section>`;
+}
 function oldIconCard() {
   if (!OldIcon.show) return '';
   const code = Sync.code, site = (location.host + location.pathname).replace(/\/(index\.html)?$/, '');
@@ -2074,7 +2088,7 @@ function joinTeam(url, code) {
 // ═════════════════════════ Actions
 const A = {
   go: (el) => { if (Page.cur && Page.cur !== 'welcome') A['page-close'](); Sheet.close(); go(el.dataset.v); },
-  page: (el) => { Sheet.close(); Page.open(el.dataset.v, { sec: el.dataset.sec }); },
+  page: (el) => { Sheet.close(); Page.open(el.dataset.v, { sec: el.dataset.sec, step: el.dataset.step }); },
   'page-close': () => { if (Page.cur === 'zone') ZE = null; Page.close(); },
   'sheet-close': () => Sheet.close(),
   history: () => Page.open('history', {}),
@@ -2187,7 +2201,7 @@ const A = {
   'reset-phone': () => { wipePhone(); Page.close(); go('home'); maybeWelcome(); toast('Ce téléphone a été remis à neuf.'); },
   theme: (el) => { LS.set(K.theme, el.dataset.v); applyTheme(); MapView.restyle(); App.changed(); },
   install: async () => { const p = App.installPrompt; if (!p) return; p.prompt(); try { await p.userChoice; } catch (e) { /* refusé */ } App.installPrompt = null; Page.refresh(); },
-  'code-create': () => { if (!Role.admin) return; setCode(genCode(), true); Page.refresh(); toast('Code créé. Faites scanner le QR code aux autres pompiers.'); },
+  'code-create': () => { if (!Role.admin) return; setCode(genCode(), true); App.changed(); Page.cur ? Page.refresh() : Page.open('settings', { sec: 'sync' }); toast('Équipe reliée à la feuille. Faites scanner ce QR code aux distributeurs.', { ms: 5000 }); },
   'share-link': async () => {
     const link = joinLink();
     if (navigator.share) { try { await navigator.share({ title: 'Tournée des calendriers', text: `Rejoins l'équipe des calendriers (code ${Sync.code})`, url: link }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
