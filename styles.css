@@ -109,7 +109,7 @@ body.locked { overflow: hidden; }
   background: var(--chrome); color: var(--chrome-ink);
   display: flex; align-items: center; gap: 10px;
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px 14px;
-  position: relative; z-index: 600;
+  position: sticky; top: 0; z-index: 600; /* fixe/collant + opaque : iOS 26 prend sa couleur pour la barre d'état */
 }
 .crest { width: 44px; height: 44px; border-radius: 12px; background: #fff; border: 0; padding: 2px; flex: none; overflow: hidden; }
 .crest img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; display: block; }
@@ -441,7 +441,7 @@ details.more > div { display: grid; gap: 12px; margin-top: 12px; }
 
 /* ───────── Pages plein écran */
 .page { position: fixed; inset: 0; z-index: 900; background: var(--bg); display: flex; flex-direction: column; animation: slide .22s cubic-bezier(.2, .8, .2, 1); }
-.page-head { background: var(--chrome); color: var(--chrome-ink); padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 10px 6px; display: flex; align-items: center; gap: 6px; flex: none; }
+.page-head { background: var(--chrome); color: var(--chrome-ink); padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 10px 6px; display: flex; align-items: center; gap: 6px; flex: none; position: sticky; top: 0; z-index: 1; }
 .page-head h2 { margin: 0; font: 800 23px/1 var(--f-display); text-transform: uppercase; letter-spacing: .02em; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page-body { flex: 1; overflow-y: auto; padding-block: 20px calc(40px + env(safe-area-inset-bottom, 0px)); padding-inline: 16px; }
 .page-body > .stackv { max-width: 720px; margin: 0 auto; display: grid; gap: 16px; }
@@ -744,6 +744,25 @@ select.input.sm { padding-right: 30px; }
   .tabs .fab-disc .ico { width: 21px; height: 21px; }
 }
 
+/* ───────── En-tête qui tient sur tous les téléphones (320 → 480 px de large) */
+.top { gap: clamp(6px, 2vw, 10px); padding-left: max(clamp(10px, 3.4vw, 14px), env(safe-area-inset-left, 0px)); padding-right: max(clamp(6px, 2.4vw, 12px), env(safe-area-inset-right, 0px)); }
+.top .crest { width: clamp(38px, 10.6vw, 46px); height: clamp(38px, 10.6vw, 46px); }
+.top h1 { font-size: clamp(17px, 5.6vw, 25px); }
+.top-eyebrow { font-size: clamp(9.5px, 2.55vw, 11px); letter-spacing: .08em; }
+.top-eyebrow .eb-short { display: none; }
+@media (max-width: 479px) { .top-eyebrow .eb-long { display: none; } .top-eyebrow .eb-short { display: inline; } }
+@media (max-width: 430px) {
+  .sync-pill { width: 30px; height: 30px; padding: 0; justify-content: center; }
+  .sync-pill span { display: none; }
+  .sync-pill i { width: 10px; height: 10px; }
+  .top .me-btn { width: 34px; height: 34px; }
+  .top .icon-btn { width: 40px; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .top .crest { width: 36px; height: 36px; }
+  .top h1 { font-size: 19px; }
+}
+
 /* ───────── Accès responsable, équipes de 2 ou 3 */
 .role-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); font: 700 12px var(--f-body); color: var(--ink-2); white-space: nowrap; }
 .me-now { margin-top: 14px; padding: 11px 13px; border-radius: 12px; background: var(--surface-2); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14.5px; }
@@ -766,3 +785,21 @@ textarea.input[readonly] { font: 400 14px/1.5 ui-monospace, SFMono-Regular, Menl
 .danger-card .confirm p { margin-bottom: 2px; }
 .w-actions .btn small { font-weight: 600; opacity: .75; margin-left: 6px; font-size: 13px; }
 .w-actions .card { text-align: left; }
+
+/* ───────── iPhone, app sur l'écran d'accueil (iOS 26+) */
+/* Le fond clair est porté par #app : la « couleur de page » lue par iOS reste celle de l'en-tête. */
+#app { background: var(--bg); }
+@media (display-mode: standalone) {
+  html, body { background: var(--chrome); }
+  /* Filet pour les icônes ajoutées avant ce correctif (vue raccourcie de la hauteur de la barre d'état).
+     Vaut exactement 100 % dès que la barre d'état est opaque (marge du haut à 0), sur Android et en paysage. */
+  html { height: min(100lvh, calc(100% + env(safe-area-inset-top, 0px))); }
+}
+/* Paysage : rien sous l'encoche ou la Dynamic Island. */
+.page-head { padding-left: max(6px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+.view { left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); }
+.page-body { margin-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px); }
+.page-foot { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.fix-card { border: 2px solid var(--gold); }
+.fix-card ol { margin: 10px 0 14px; padding-left: 22px; display: grid; gap: 7px; font-size: 14.5px; line-height: 1.4; }
+.fix-card .code-box { display: inline-block; font-size: 17px; padding: 2px 8px; margin-top: 2px; }

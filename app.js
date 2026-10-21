@@ -43,7 +43,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage plein ou bloqué */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* idem */ } },
 };
-const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed', made: 'cal.made' };
+const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed', made: 'cal.made', fixLater: 'cal.fixlater' };
 
 // ═════════════════════════ Données du secteur (5 communes)
 const O_LAT = 47.5, O_LON = 7.1;
@@ -663,7 +663,7 @@ function renderHeader() {
   const pill = $('#sync-pill'), st = Store.demoOn ? 'demo' : Sync.state;
   let txt = { demo: 'Démo', local: 'Local', online: 'En ligne', syncing: 'Synchro…', offline: 'Hors ligne', error: 'Erreur synchro' }[st] || 'Local';
   if (!Store.demoOn && Sync.pending && Sync.code && st !== 'syncing') txt += ` · ${Sync.pending}`;
-  pill.dataset.s = st; pill.querySelector('span').textContent = txt;
+  pill.dataset.s = st; pill.querySelector('span').textContent = txt; pill.title = txt; pill.setAttribute('aria-label', 'Synchronisation : ' + txt);
   const m = member(Me.team()[0]), btn = $('#me-btn');
   btn.innerHTML = m ? esc(initials(m.name)) : ico('user');
   btn.style.background = m ? m.color : '';
@@ -689,7 +689,7 @@ function renderHome() {
   const ranked = members().map((m) => [m, S.byMember[m.id]]).filter(([, b]) => b?.doors).sort((a, b) => b[1].doors - a[1].doors).slice(0, 5);
   const tourSt = UI.tour.street && streetOf(UI.tour.street);
   const hero = mp || S, heroLbl = mp ? 'Mes rues' : 'Avancement';
-  el.innerHTML = `<div class="view-in"><div class="home-grid">
+  el.innerHTML = `<div class="view-in">${oldIconCard()}<div class="home-grid">
   <div class="home-col">
     <section class="hero" aria-label="Avancement">
       <div class="hero-chief">
@@ -2028,6 +2028,31 @@ function wipePhone() {
   UI.tour = { street: null, near: false, order: 'sides', open: true, cur: null };
   UI.com = ''; UI.zone = ''; UI.filter = 'all'; UI.street = null; UI.q = '';
 }
+/** iPhone : icône ajoutée avant le correctif d'affichage. iOS ne relit le style de barre d'état qu'à l'ajout
+ *  sur l'écran d'accueil ; signe fiable : la page passe encore sous la barre d'état (marge du haut > 0 en portrait). */
+const OldIcon = {
+  on: false,
+  check() {
+    if (navigator.standalone !== true || !matchMedia('(orientation: portrait)').matches) return;
+    const p = document.createElement('div');
+    p.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none';
+    document.body.appendChild(p); this.on = p.offsetHeight > 20; p.remove();
+  },
+  get show() { return this.on && Date.now() - (+LS.get(K.fixLater, 0) || 0) > 864e5; },
+};
+function oldIconCard() {
+  if (!OldIcon.show) return '';
+  const code = Sync.code, site = (location.host + location.pathname).replace(/\/(index\.html)?$/, '');
+  const first = !code
+    ? (Role.admin ? '<li>Créez d’abord le code de l’équipe (<b>Réglages › Équipe connectée</b>) : vos secteurs seront à l’abri dans la feuille.</li>' : '')
+    : `${Sync.pending ? '<li>Attendez que tout soit envoyé (pastille verte en haut).</li>' : ''}<li>Notez le code de l’équipe : <span class="code-box">${esc(code)}</span></li>`;
+  return `<section class="card fix-card">
+    <div class="card-h"><h2>Affichage à corriger</h2></div>
+    <p class="muted" style="margin:0">Cette icône a été ajoutée avant la mise à jour : iPhone garde un haut flou et une bande vide en bas. Il suffit de la remettre, en 2 minutes.</p>
+    <ol>${first}<li>Appui long sur l’icône <b>Calendriers</b> › <b>Supprimer l’app</b>.</li><li>Dans Safari, ouvrez <b>${esc(site)}</b> puis <b>Partager › Sur l’écran d’accueil</b>.</li>${code ? '<li>Ouvrez l’app : <b>« J’ai un code d’équipe »</b>, tapez le code.</li>' : ''}</ol>
+    <button class="btn ghost sm" data-act="fix-later">Plus tard</button>
+  </section>`;
+}
 function applyTheme() {
   const t = LS.get(K.theme, 'auto');
   if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.dataset.theme = t;
@@ -2054,6 +2079,7 @@ const A = {
   'sheet-close': () => Sheet.close(),
   history: () => Page.open('history', {}),
   'me-sheet': () => openMeSheet(),
+  'fix-later': () => { LS.set(K.fixLater, Date.now()); App.changed(); },
   'me-toggle': (el) => Me.toggle(el.dataset.v),
   'leave-admin': () => { Role.set('distrib'); go('home'); toast('Retour à l’accès distributeur.'); },
   'share-assign': async () => {
@@ -2292,6 +2318,7 @@ function migrate() {
 }
 function boot() {
   applyTheme();
+  OldIcon.check();
   const wiped = migrate();
   Store.init();
   prunePassages();
