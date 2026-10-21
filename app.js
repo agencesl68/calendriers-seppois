@@ -195,7 +195,7 @@ const Me = {
     return Store.demoOn ? ['demo-m0', 'demo-m1'] : [];
   },
   team() { return this.raw().filter((id, i, a) => member(id) && a.indexOf(id) === i).slice(0, MAX_TEAM); },
-  set(ids) { LS.set(this.key(), [...new Set(ids)].slice(0, MAX_TEAM)); App.changed(); },
+  set(ids) { LS.set(this.key(), [...new Set(ids)].slice(0, MAX_TEAM)); Store.rev++; App.changed(); },
   toggle(id) {
     const t = this.team();
     if (t.includes(id)) this.set(t.filter((x) => x !== id));
@@ -207,7 +207,7 @@ const Me = {
 /** Deux accès : « responsable » (il répartit les rues) et « distributeur » (il fait les portes). */
 const Role = {
   get() { return LS.get(K.role, '') || (Store.demoOn ? 'admin' : ''); },
-  set(r) { LS.set(K.role, r); App.changed(); },
+  set(r) { LS.set(K.role, r); Store.rev++; App.changed(); },
   get admin() { return this.get() === 'admin'; },
   get chosen() { return !!this.get(); },
 };
@@ -310,13 +310,19 @@ function assignStreetToZone(sk, zoneId) {
 }
 function orderStreetUnits(sk, order = 'sides') {
   const st = streetOf(sk); if (!st) return [];
-  let list = [...st.addrs];
+  let list = st.addrs.filter(visibleAddr);
   if (order === 'sides') list = [...list.filter((a) => !a.even), ...list.filter((a) => a.even).reverse()];
   return list.flatMap((a) => unitsOf(a.id));
 }
 
 /** Les secteurs confiés à l'équipe de ce téléphone. */
 const myZones = () => { const t = Me.team(); return t.length ? zones().filter((z) => (z.members || []).some((m) => t.includes(m))) : []; };
+/** Adresses confiées à l'équipe de ce téléphone. */
+const myAddrSet = () => memo('myAddrs', () => new Set(myZones().flatMap((z) => z.addrs || [])));
+/** Le responsable voit tout ; un distributeur ne voit que les adresses de ses rues. */
+const visibleAddr = (a) => Role.admin || myAddrSet().has(a.id);
+/** Rues visibles sur ce téléphone. */
+const visStreets = () => memo('visStreets', () => (Role.admin ? streets() : streets().filter((st) => st.addrs.some(visibleAddr))));
 /** Avancement cumulé d'une liste de secteurs. */
 function zonesProgress(list) {
   const S = stats(), out = { total: 0, visited: 0, st: blankSt() };
@@ -332,14 +338,17 @@ function zonesStreets(list) {
   const ids = new Set(list.flatMap((z) => z.addrs || []));
   return streets().filter((st) => st.addrs.some((a) => ids.has(a.id)));
 }
-const openOf = (st) => st.addrs.reduce((t, a) => t + unitsOf(a.id).filter((u) => OPEN.has(statusOf(u.id))).length, 0);
+const openOf = (st) => st.addrs.filter(visibleAddr).reduce((t, a) => t + unitsOf(a.id).filter((u) => OPEN.has(statusOf(u.id))).length, 0);
 function stats() {
   return memo('stats', () => {
     const s = Store.s, zi = zoneIndex();
     const st = blankSt(), byDay = {}, byMember = {}, byStreet = new Map(), byZone = {}, byCom = {};
     const mem = (id) => (byMember[id] ||= { doors: 0, streets: new Map(), last: 0 });
     const grp = () => ({ total: 0, visited: 0, st: blankSt(), members: new Set() });
+    let total = 0;
     for (const u of units()) {
+      if (!visibleAddr(u.a)) continue;
+      total++;
       const a = u.a, p = pass(u.id), status = p?.status || 'todo';
       st[status]++;
       let bs = byStreet.get(a.sk); if (!bs) byStreet.set(a.sk, (bs = { ...grp(), sk: a.sk, name: a.street, com: a.com }));
@@ -356,13 +365,14 @@ function stats() {
         }
       }
     }
-    return { total: units().length, visited: units().length - st.todo, st, byDay, byMember, byStreet, byZone, byCom };
+    return { total, visited: total - st.todo, st, byDay, byMember, byStreet, byZone, byCom };
   });
 }
 function repasses() {
   return memo('rep', () => {
     const s = Store.s, out = [], so = { matin: 1, midi: 2, aprem: 3, soir: 4, '': 5 };
     for (const u of units()) {
+      if (!visibleAddr(u.a)) continue;
       const p = pass(u.id);
       if (p && (p.status === 'repasse' || (p.status === 'absent' && p.rp?.date))) out.push({ u, a: u.a, p, date: p.rp?.date || '', slot: p.rp?.slot || '' });
     }
@@ -379,19 +389,17 @@ function searchAddrs(q) {
   for (const a of addrs()) {
     const an = norm(a.num);
     if (an !== num && !an.startsWith(num + ' ')) continue;
-    if (UI.com && a.com !== UI.com) continue;
+    if (!visibleAddr(a) || (Role.admin && UI.com && a.com !== UI.com)) continue;
     const hay = norm(a.street + ' ' + a.com);
     if (!words.every((w) => hay.includes(w))) continue;
     out.push(a);
   }
   return out.sort((x, y) => x.ci - y.ci || sortKey(x.street).localeCompare(sortKey(y.street), 'fr')).slice(0, 40);
 }
-/** Ce que le binôme de ce téléphone a encaissé aujourd'hui : utile pour la remise au trésorier. */
-
 function events() {
   return memo('events', () => {
     const out = [];
-    for (const u of units()) { const p = pass(u.id); if (p?.hist) for (const h of p.hist) if (h.s !== 'todo') out.push({ u, a: u.a, h }); }
+    for (const u of units()) { if (!visibleAddr(u.a)) continue; const p = pass(u.id); if (p?.hist) for (const h of p.hist) if (h.s !== 'todo') out.push({ u, a: u.a, h }); }
     return out.sort((x, y) => y.h.at - x.h.at);
   });
 }
@@ -712,14 +720,14 @@ function renderHome() {
       ${zs.length ? zs.map((z) => zoneRow(z)).join('') : `<p class="muted" style="margin:0 0 12px">Créez les secteurs et confiez chacun à une équipe de 2 ou 3 personnes.</p><button class="btn block" data-act="go" data-v="team">${ico('sparkle')} Répartir les rues</button>`}
     </section>` : ''}
     <section class="card">
-      <div class="card-h"><h2>${nf(S.total)} foyers</h2><span class="muted">${COMMUNES.length} communes</span></div>
+      <div class="card-h"><h2>${nf(S.total)} foyers</h2><span class="muted">${Role.admin ? `${COMMUNES.length} communes` : 'dans vos rues'}</span></div>
       ${stackBar(S.st, S.total)}
       <div class="st-grid">${ST_FILTER.map((k) => `<button class="st-cell" data-act="mapfilter" data-v="${k}"><span class="dot" data-st="${k}"></span><b>${nf(S.st[k])}</b><span>${STATUS[k].label} · ${pct(S.st[k], S.total)} %</span></button>`).join('')}</div>
     </section>
-    <section class="card">
+    ${Role.admin ? '' : '<!--'}<section class="card">
       <div class="card-h"><h2>Par commune</h2><span class="muted">foyers faits</span></div>
       ${COMMUNES.map((c) => { const g = S.byCom[c] || { total: 0, visited: 0, st: blankSt() }; return `<button class="zone-row as-btn" data-act="com-go" data-v="${esc(c)}"><span class="zdot" style="--c:var(--ink-2)"></span><b>${esc(c)}</b><span class="meta">${pct(g.visited, g.total)} %</span>${stackBar(g.st, g.total, 'sm')}<span class="muted" style="grid-column:2/-1;font-size:12.5px">${nf(g.visited)} / ${nf(g.total)} foyers</span></button>`; }).join('')}
-    </section>
+    </section>${Role.admin ? '' : '-->'}
     <section class="card">
       <div class="card-h"><h2>14 derniers jours</h2><span class="muted">passages par jour</span></div>
       ${maxD ? `<div class="chart"><div class="gridline"><span>${maxD}</span></div><div class="bars">${days.map((d) => { const v = S.byDay[d] || 0; return `<i class="${d === today ? 'today' : ''}${v ? '' : ' zero'}" style="height:${v ? Math.max(3, (v / maxD) * 100) : 2}%" title="${dayLabel(d)} : ${v} passages"></i>`; }).join('')}</div><div class="bars-x">${days.map((d, i) => `<span>${i % 2 === 1 ? new Date(d + 'T12:00:00').getDate() : ''}</span>`).join('')}</div></div>` : '<div class="empty">Aucun passage sur les 14 derniers jours.</div>'}
@@ -769,7 +777,7 @@ function rankRow(m, b, i) {
 }
 
 // ═════════════════════════ Carte & rues
-const mapKeep = (a, zi) => (!UI.com || a.com === UI.com) && (!UI.zone || (UI.zone === '__none' ? !zi.has(a.id) : zi.get(a.id) === UI.zone));
+const mapKeep = (a, zi) => visibleAddr(a) && (!Role.admin || ((!UI.com || a.com === UI.com) && (!UI.zone || (UI.zone === '__none' ? !zi.has(a.id) : zi.get(a.id) === UI.zone))));
 function renderMapView() {
   $$('#v-map .seg button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.v === UI.mapMode)));
   const zs = zones();
@@ -779,14 +787,23 @@ function renderMapView() {
   const tot = sum(Object.values(c));
   $('#map-filters').innerHTML = [['all', 'Tous', tot], ...ST_FILTER.map((k) => [k, STATUS[k].short, c[k]])]
     .map(([k, l, n]) => `<button class="chip" data-act="filter" data-v="${k}" aria-pressed="${UI.filter === k}">${k !== 'all' ? `<span class="dot" data-st="${k}"></span>` : ''}${l} <small>${n}</small></button>`).join('')
-    + `<select class="input sm zone-sel" data-change="com" aria-label="Commune"><option value="">Toutes les communes</option>${COMMUNES.map((x) => `<option ${UI.com === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`
-    + (zs.length ? `<select class="input sm zone-sel" data-change="zone" aria-label="Secteur"><option value="">Tous les secteurs</option>${zs.map((z) => `<option value="${z.id}" ${UI.zone === z.id ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}<option value="__none" ${UI.zone === '__none' ? 'selected' : ''}>Sans secteur (${unassigned().length})</option></select>` : '');
+    + (Role.admin ? `<select class="input sm zone-sel" data-change="com" aria-label="Commune"><option value="">Toutes les communes</option>${COMMUNES.map((x) => `<option ${UI.com === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` : '')
+    + (Role.admin && zs.length ? `<select class="input sm zone-sel" data-change="zone" aria-label="Secteur"><option value="">Tous les secteurs</option>${zs.map((z) => `<option value="${z.id}" ${UI.zone === z.id ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}<option value="__none" ${UI.zone === '__none' ? 'selected' : ''}>Sans secteur (${unassigned().length})</option></select>` : '');
   $('#map-host').hidden = UI.mapMode !== 'map';
+  const pen = $('.fab-btn[data-act="draw-start"]'); if (pen) pen.hidden = !Role.admin;
   $('#streets-host').hidden = UI.mapMode !== 'streets';
   if (UI.mapMode === 'streets') renderStreets();
   else {
-    $('#map-legend').innerHTML = ST_FILTER.map((k) => `<div><span class="dot" data-st="${k}"></span>${STATUS[k].short}<b>${c[k]}</b></div>`).join('') + '<div class="legend-foot">Touchez une rue pour la gérer</div>';
-    $('#map-legend').hidden = !!MapView.lasso;
+    const mine = myZones();
+    $('#map-legend').innerHTML = ST_FILTER.map((k) => `<div><span class="dot" data-st="${k}"></span>${STATUS[k].short}<b>${c[k]}</b></div>`).join('')
+      + `<div class="legend-foot">${Role.admin ? 'Touchez une rue pour la gérer' : `Vos rues · ${esc(mine.map((z) => z.name).join(', '))}`}</div>`;
+    $('#map-legend').hidden = !!MapView.lasso || (!Role.admin && !tot);
+    let hint = $('#map-hint');
+    if (!hint) { hint = document.createElement('div'); hint.id = 'map-hint'; hint.className = 'map-empty'; $('#map-host').appendChild(hint); }
+    hint.hidden = Role.admin || tot > 0;
+    hint.innerHTML = Me.team().length
+      ? `<b>Aucune rue pour l’instant</b><span>Pas encore de rues pour ${esc(names(Me.team()))} : elles apparaîtront ici dès que le responsable les aura attribuées.</span>`
+      : `<b>Qui êtes-vous ?</b><span>Choisissez votre prénom pour voir vos rues sur la carte.</span><button class="btn sm" data-act="me-sheet">Choisir</button>`;
     $('#layer-lbl').textContent = MapView.layer === 'sat' ? 'Plan' : 'Satellite';
   }
 }
@@ -795,17 +812,17 @@ function renderStreets() {
   if (UI.street) { host.innerHTML = `<div class="view-in">${streetDetail(UI.street)}</div>`; return; }
   const ae = document.activeElement;
   if (ae && ae.id === 'street-q' && host.contains(ae)) { $('#street-list').innerHTML = streetRows(); return; }
-  const S = stats(), counts = { '': streets().length };
-  for (const st of streets()) counts[st.com] = (counts[st.com] || 0) + 1;
+  const S = stats(), vs = visStreets(), counts = { '': vs.length };
+  for (const st of vs) counts[st.com] = (counts[st.com] || 0) + 1;
   host.innerHTML = `<div class="view-in">
-    ${comChips('com', UI.com, counts)}
+    ${Role.admin ? comChips('com', UI.com, counts) : `<div class="lbl">Vos rues · ${esc(myZones().map((z) => z.name).join(', ') || 'aucune pour l’instant')}</div>`}
     <div class="street-tools">
       <div class="input-ico">${ico('search')}<input id="street-q" class="input" type="search" placeholder="Rue, ou n° et rue (12 bâle)" value="${esc(UI.q)}" autocomplete="off" aria-label="Chercher une rue ou une adresse"></div>
       <select class="input" style="width:auto" data-change="sort" aria-label="Trier les rues">${[['alpha', 'A → Z'], ['todo', 'Le plus à faire'], ['prog', 'Avancement']].map(([v, l]) => `<option value="${v}" ${UI.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </div>
     <div id="addr-hits">${addrHits()}</div>
     <div id="street-list">${streetRows()}</div>
-    <p class="muted" style="font-size:12.5px;margin:0">${nf(S.total)} foyers dans ${streets().length} rues.</p>
+    <p class="muted" style="font-size:12.5px;margin:0">${nf(S.total)} foyers dans ${vs.length} rues.</p>
   </div>`;
 }
 function addrHits() {
@@ -818,19 +835,19 @@ function addrHits() {
 }
 function streetRows() {
   const S = stats(), q = norm(UI.q), zi = zoneIndex();
-  let rows = streets().filter((st) => (!UI.com || st.com === UI.com) && (!q || norm(st.name + ' ' + st.com).includes(q)));
-  if (UI.zone) rows = rows.filter((st) => st.addrs.some((a) => (UI.zone === '__none' ? !zi.has(a.id) : zi.get(a.id) === UI.zone)));
+  let rows = visStreets().filter((st) => (!Role.admin || !UI.com || st.com === UI.com) && (!q || norm(st.name + ' ' + st.com).includes(q)));
+  if (Role.admin && UI.zone) rows = rows.filter((st) => st.addrs.some((a) => (UI.zone === '__none' ? !zi.has(a.id) : zi.get(a.id) === UI.zone)));
   if (UI.filter !== 'all') rows = rows.filter((st) => S.byStreet.get(st.sk)?.st[UI.filter] > 0);
   const g = (st) => S.byStreet.get(st.sk), prog = (st) => g(st).visited / g(st).total;
   if (UI.sort === 'todo') rows.sort((a, b) => g(b).st.todo - g(a).st.todo);
   else if (UI.sort === 'prog') rows.sort((a, b) => prog(b) - prog(a));
-  if (!rows.length) return searchAddrs(UI.q).length ? '' : '<div class="empty"><b>Aucune rue</b>Modifiez la recherche ou les filtres.</div>';
+  if (!rows.length) return searchAddrs(UI.q).length ? '' : !Role.admin && !visStreets().length ? `<div class="empty"><b>Aucune rue attribuée</b>${Me.team().length ? 'Le responsable n’a pas encore confié de rues à votre équipe.' : 'Choisissez votre prénom pour voir vos rues.<button class="btn" data-act="me-sheet">Choisir</button>'}</div>` : '<div class="empty"><b>Aucune rue</b>Modifiez la recherche ou les filtres.</div>';
   const card = (st) => {
     const r = g(st);
     const info = [r.st.todo ? `${r.st.todo} à faire` : 'Rue terminée', r.st.repasse ? `${r.st.repasse} à repasser` : '', r.st.absent ? `${r.st.absent} absents` : ''].filter(Boolean).join(' · ');
     return `<button class="street-row" data-act="street" data-v="${esc(st.sk)}"><div class="sr-top"><b>${esc(st.name)}</b><span>${r.visited}/${r.total}</span></div>${stackBar(r.st, r.total, 'sm')}<div class="sr-foot"><span class="grow">${info}</span>${r.members.size ? avatars([...r.members]) : ''}</div></button>`;
   };
-  if (UI.sort !== 'alpha' || UI.com) return `<div class="street-list">${rows.map(card).join('')}</div>`;
+  if (UI.sort !== 'alpha' || (Role.admin && UI.com)) return `<div class="street-list">${rows.map(card).join('')}</div>`;
   return COMMUNES.map((c) => { const list = rows.filter((st) => st.com === c); return list.length ? `<h3 class="com-h">${esc(c)} <small>${list.length} rues</small></h3><div class="street-list">${list.map(card).join('')}</div>` : ''; }).join('');
 }
 function bldTile(a, act = 'addr') {
@@ -842,12 +859,12 @@ function bldTile(a, act = 'addr') {
 function streetDetail(sk) {
   const S = stats(), st = streetOf(sk), r = S.byStreet.get(sk);
   if (!st || !r) { UI.street = null; return '<div class="empty"><b>Rue introuvable</b></div>'; }
-  const odd = st.addrs.filter((a) => !a.even), even = st.addrs.filter((a) => a.even);
+  const own = st.addrs.filter(visibleAddr), odd = own.filter((a) => !a.even), even = own.filter((a) => a.even);
   const who = [...r.members].map((id) => [id, S.byMember[id]?.streets.get(sk)?.length || 0]).sort((a, b) => b[1] - a[1]);
-  const z = [...new Set(st.addrs.map((a) => zoneOf(a.id)?.name).filter(Boolean))];
+  const z = [...new Set(own.map((a) => zoneOf(a.id)?.name).filter(Boolean))];
   return `
   <div class="sd-head"><button class="icon-btn" data-act="street-back" aria-label="Retour aux rues">${ico('chev-l')}</button><div class="plaque street">${esc(st.name)}</div></div>
-  <p class="muted" style="margin:-6px 0 0;font-weight:600">${esc(st.com)} · ${st.addrs.length} adresses · ${r.total} foyers${z.length ? ' · ' + esc(z.join(', ')) : ' · sans secteur'}</p>
+  <p class="muted" style="margin:-6px 0 0;font-weight:600">${esc(st.com)} · ${own.length} adresses · ${r.total} foyers${z.length ? ' · ' + esc(z.join(', ')) : ' · sans secteur'}</p>
   <div class="kpis">
     <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${r.total} foyers</span></div>
     <div class="kpi"><b>${r.st.done}</b><span>calendriers donnés</span></div>
@@ -861,7 +878,7 @@ function streetDetail(sk) {
     <div><div class="lbl">Côté pair · ${even.length}</div><div class="doors">${even.map((a) => bldTile(a)).join('') || '<span class="muted">—</span>'}</div></div>
   </div>
   <p class="muted" style="margin:0;font-size:13px">Un immeuble ? Touchez son numéro, puis « Plusieurs logements ».</p>
-  <div class="field"><label for="sd-zone">Secteur de toute la rue</label><select id="sd-zone" class="input" data-change="street-zone" data-sk="${esc(sk)}"><option value="">${zones().length ? '— Sans secteur —' : 'Aucun secteur créé'}</option>${zones().map((x) => `<option value="${x.id}" ${z.length === 1 && z[0] === x.name ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+  ${Role.admin ? '' : '<!--'}<div class="field"><label for="sd-zone">Secteur de toute la rue</label><select id="sd-zone" class="input" data-change="street-zone" data-sk="${esc(sk)}"><option value="">${zones().length ? '— Sans secteur —' : 'Aucun secteur créé'}</option>${zones().map((x) => `<option value="${x.id}" ${z.length === 1 && z[0] === x.name ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>${Role.admin ? '' : '-->'}
   <section class="card"><div class="card-h"><h2>Passé par</h2></div>${who.length ? who.map(([id, n]) => `<button class="rank" data-act="member" data-v="${id}" style="grid-template-columns:auto 1fr auto">${avatar(id)}<span class="nm"><b>${esc(member(id)?.name || 'Ancien membre')}</b></span><span class="vals"><b>${n}</b><small>foyers</small></span></button>`).join('') : '<p class="muted" style="margin:0">Personne n’est encore passé dans cette rue.</p>'}</section>
   <button class="btn ghost" data-act="street-map" data-v="${esc(sk)}">${ico('map')} Voir la rue sur la carte</button>`;
 }
@@ -873,7 +890,7 @@ function tourList() {
   const T = UI.tour;
   if (T.near) {
     const pos = Geo.pos; if (!pos) return [];
-    const near = units().filter((u) => OPEN.has(statusOf(u.id)) || u.id === T.cur).map((u) => ({ u, d: distM([pos.lat, pos.lon], [u.a.lat, u.a.lon]) + u.k * 0.01 })).sort((x, y) => x.d - y.d);
+    const near = units().filter((u) => visibleAddr(u.a) && (OPEN.has(statusOf(u.id)) || u.id === T.cur)).map((u) => ({ u, d: distM([pos.lat, pos.lon], [u.a.lat, u.a.lon]) + u.k * 0.01 })).sort((x, y) => x.d - y.d);
     const top = near.slice(0, 30).map((x) => x.u);
     const cur = T.cur && unitIdx().get(T.cur);
     if (cur && !top.includes(cur)) top.unshift(cur);
@@ -927,7 +944,7 @@ function renderTour() {
   if (!cur || (T.open && !remaining.length && !OPEN.has(statusOf(cur.id)) && TD.mode == null && !T.near)) {
     const team = Me.team(), zi = zoneIndex();
     const mine = zones().filter((z) => (z.members || []).some((m) => team.includes(m)));
-    const sugg = streets().filter((x) => x.sk !== T.street && (!st || x.com === st.com || mine.length) && x.addrs.some((a) => unitsOf(a.id).some((u) => OPEN.has(statusOf(u.id))) && (!mine.length || mine.some((z) => zi.get(a.id) === z.id)))).slice(0, 5);
+    const sugg = visStreets().filter((x) => x.sk !== T.street && (!st || x.com === st.com || mine.length) && x.addrs.some((a) => unitsOf(a.id).some((u) => OPEN.has(statusOf(u.id))) && (!mine.length || mine.some((z) => zi.get(a.id) === z.id)))).slice(0, 5);
     el.innerHTML = `<div class="view-in">${head}<div class="card done-banner"><span class="display">${T.near ? 'Plus rien autour' : 'Rue terminée'}</span><p class="muted" style="margin:0">${T.near ? 'Aucune porte à faire à proximité.' : 'Tous les foyers de la rue ont une réponse. Bravo !'}</p>${sugg.length ? `<div class="lbl">Rues suivantes</div><div class="chips wrap" style="justify-content:center">${sugg.map((x) => `<button class="chip" data-act="tour-start" data-v="${esc(x.sk)}">${esc(x.name)}</button>`).join('')}</div>` : ''}<label class="switch"><input type="checkbox" id="tour-open" ${T.open ? 'checked' : ''}> Sauter les portes déjà faites</label></div></div>`;
     return;
   }
@@ -989,17 +1006,18 @@ function tourSetup() {
   const mine = zones().filter((z) => (z.members || []).some((m) => team.includes(m)));
   const inMine = (st) => st.addrs.some((a) => mine.some((z) => zi.get(a.id) === z.id));
   const myStreets = mine.length ? streets().filter(inMine) : [];
-  const openN = (st) => st.addrs.reduce((t, a) => t + unitsOf(a.id).filter((u) => OPEN.has(statusOf(u.id))).length, 0);
+  const openN = openOf;
   const row = (st) => { const r = S.byStreet.get(st.sk), o = openN(st); return `<button class="street-row" data-act="tour-start" data-v="${esc(st.sk)}"><div class="sr-top"><b>${esc(st.name)}</b><span>${r.visited}/${r.total}</span></div>${stackBar(r.st, r.total, 'sm')}<div class="sr-foot"><span class="grow">${esc(st.com)} · ${o ? `${o} foyer${o > 1 ? 's' : ''} à faire ou revoir` : 'rue terminée'}</span>${r.members.size ? avatars([...r.members]) : ''}</div></button>`; };
-  const others = streets().filter((st) => !myStreets.includes(st) && (!UI.com || st.com === UI.com)).sort((a, b) => (openN(a) ? 0 : 1) - (openN(b) ? 0 : 1) || a.ci - b.ci || sortKey(a.name).localeCompare(sortKey(b.name), 'fr'));
+  const others = (Role.admin ? streets() : []).filter((st) => !myStreets.includes(st) && (!UI.com || st.com === UI.com)).sort((a, b) => (openN(a) ? 0 : 1) - (openN(b) ? 0 : 1) || a.ci - b.ci || sortKey(a.name).localeCompare(sortKey(b.name), 'fr'));
   return `<div class="view-in">
     <div class="tour-top">${tourTeamLine()}</div>
     <h2 class="display">Où tournez-vous ?</h2>
     <button class="near-btn" data-act="tour-near">${ico('locate')}<span><b>Portes autour de moi</b><small>Le GPS propose le foyer le plus proche à faire.</small></span></button>
-    ${myStreets.length ? `<div class="lbl">Votre secteur · ${esc(mine.map((z) => z.name).join(', '))}</div><div class="street-list">${myStreets.map(row).join('')}</div>` : ''}
-    <div class="lbl">${myStreets.length ? 'Autres rues' : 'Choisissez une rue'}</div>
+    ${myStreets.length ? `<div class="lbl">Vos rues · ${esc(mine.map((z) => z.name).join(', '))}</div><div class="street-list">${myStreets.map(row).join('')}</div>`
+      : Role.admin ? '' : `<section class="card"><div class="empty"><b>${Me.team().length ? 'Aucune rue attribuée' : 'Qui êtes-vous ?'}</b>${Me.team().length ? 'Le responsable n’a pas encore confié de rues à votre équipe.' : 'Choisissez votre prénom pour voir vos rues.<button class="btn" data-act="me-sheet">Choisir</button>'}</div></section>`}
+    ${Role.admin ? `<div class="lbl">${myStreets.length ? 'Autres rues' : 'Choisissez une rue'}</div>
     ${comChips('tour-com', UI.com)}
-    <div class="street-list">${others.map(row).join('')}</div>
+    <div class="street-list">${others.map(row).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -1155,7 +1173,7 @@ function openStreetSheet(sk) {
     for (const a of st2.addrs) { const z = zoneOf(a.id); const k = z ? z.id : ''; inZ.set(k, (inZ.get(k) || 0) + 1); }
     const only = inZ.size === 1 ? [...inZ.keys()][0] : '';
     panel.innerHTML = `<div class="sheet-grab"></div>
-    <header class="sheet-head"><div class="t"><b>${esc(st2.name)}</b><small>${esc(st2.com)} · ${st2.addrs.length} adresses · ${r.total} foyers</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
+    <header class="sheet-head"><div class="t"><b>${esc(st2.name)}</b><small>${esc(st2.com)} · ${st2.addrs.filter(visibleAddr).length} adresses · ${r.total} foyers</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
     <div class="sheet-body">
       ${stackBar(r.st, r.total)}
       <div class="kpis">
@@ -1654,7 +1672,7 @@ const MapView = {
     this.canvas.style.width = s.x + 'px'; this.canvas.style.height = s.y + 'px';
   },
   fitTo(list, anim = true, maxZoom = 18.5) { if (!this.map || !list.length) return; this.map.fitBounds(L.latLngBounds(list.map((a) => [a.lat, a.lon])), { paddingTopLeft: [24, 24], paddingBottomRight: [64, 24], maxZoom, animate: anim }); },
-  fit(anim = true) { this.fitTo(UI.com ? addrs().filter((a) => a.com === UI.com) : addrs(), anim, 17); },
+  fit(anim = true) { const mine = Role.admin ? [] : addrs().filter(visibleAddr); this.fitTo(mine.length ? mine : UI.com ? addrs().filter((a) => a.com === UI.com) : addrs(), anim, 17.5); },
   restyle() { if (!this.map) return; this.col(); this.buildVector(); if (this.layer === 'sat') this.map.removeLayer(this.vector); this.styleRoads(); this.draw(); },
   toggleLayer() {
     if (!this.map) return;
@@ -1681,7 +1699,7 @@ const MapView = {
     let best = null, bd = Infinity;
     for (const [sk, { lines, bb }] of streetRoads()) {
       if (bb[2] < s0 || bb[0] > n0 || bb[3] < w0 || bb[1] > e0) continue;
-      if (!this.lasso && UI.com && streetOf(sk)?.com !== UI.com) continue;
+      if (!this.lasso && (Role.admin ? UI.com && streetOf(sk)?.com !== UI.com : !streetOf(sk)?.addrs.some(visibleAddr))) continue;
       for (const line of lines) {
         let prev = null;
         for (const ll of line) {
@@ -1802,7 +1820,7 @@ const MapView = {
     const P = (lat, lon) => map.latLngToContainerPoint([lat, lon]);
     const inView = (p, m = 40) => p.x > -m && p.y > -m && p.x < W + m && p.y < H + m;
     const halo = sat ? 'rgba(0,0,0,.72)' : c.halo, txt = sat ? '#fff' : c.label;
-    const zi = zoneIndex(), zs = zones();
+    const zi = zoneIndex(), zs = Role.admin || L0 ? zones() : myZones();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
     // Noms de rues et lieux
     if (z >= 16) {
@@ -1825,6 +1843,17 @@ const MapView = {
       for (const zn of zs) { o.fillStyle = zn.color; o.beginPath(); for (const id of zn.addrs || []) { const a = idx.get(id); if (!a) continue; const p = P(a.lat, a.lon); if (!inView(p, rad)) continue; o.moveTo(p.x + rad, p.y); o.arc(p.x, p.y, rad, 0, Math.PI * 2); } o.fill(); }
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = sat ? 0.3 : 0.2; ctx.drawImage(off, 0, 0); ctx.restore();
     }
+    // Distributeur : ses rues tracées dans la couleur de son secteur
+    if (!Role.admin && !L0) {
+      ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.lineWidth = clamp(9 * Math.pow(2, z - 17), 4, 24); ctx.globalAlpha = sat ? 0.6 : 0.4;
+      for (const st of visStreets()) {
+        const e = streetRoads().get(st.sk); if (!e) continue;
+        ctx.strokeStyle = zoneOf(st.addrs.find(visibleAddr).id)?.color || c.red;
+        for (const line of e.lines) { ctx.beginPath(); line.forEach((ll, i) => { const q = P(ll[0], ll[1]); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }); ctx.stroke(); }
+      }
+      ctx.restore();
+    }
     // Rue touchée : son tracé est surligné
     if (this.selStreet) {
       const e = streetRoads().get(this.selStreet);
@@ -1841,6 +1870,7 @@ const MapView = {
     this._r = r;
     const f = UI.filter, hits = [], dim = [];
     for (const a of addrs()) {
+      if (!L0 && !visibleAddr(a)) continue;
       const p = P(a.lat, a.lon); if (!inView(p, 20)) continue;
       const n = unitsOf(a.id).length, cnt = n > 1 ? addrSt(a.id) : null, st = n > 1 ? null : statusOf(a.id);
       const keep = L0 ? true : mapKeep(a, zi) && (f === 'all' || (cnt ? cnt[f] > 0 : st === f));

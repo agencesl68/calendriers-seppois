@@ -310,6 +310,11 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .map-bar { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); border-bottom: 1px solid var(--line); flex: none; z-index: 2; }
 .map-bar .seg { align-self: flex-start; }
 #map-host { position: relative; flex: 1; min-height: 0; }
+.map-empty { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 650; width: min(320px, calc(100% - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: var(--shadow); display: grid; gap: 8px; text-align: center; font-size: 14px; }
+.map-empty[hidden] { display: none; }
+.map-empty b { font: 700 17px var(--f-display, var(--f-body)); }
+.map-empty span { color: var(--ink-2); }
+.map-empty .btn { justify-self: center; margin-top: 4px; }
 #map { position: absolute; inset: 0; background: var(--map-bg); }
 .addr-canvas { position: absolute; left: 0; top: 0; z-index: 450; pointer-events: none; transition: opacity .12s; }
 .leaflet-container { font-family: var(--f-body); background: var(--map-bg); outline: none; }
