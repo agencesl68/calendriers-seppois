@@ -1230,7 +1230,7 @@ function renderMyTeam() {
     <section class="card">
       <div class="card-h"><h2>Responsable</h2></div>
       <p class="muted" style="margin:0 0 12px">Vous répartissez les rues entre les équipes ? Entrez le code du responsable.</p>
-      <form class="street-tools" data-form="admin-code"><input class="input" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code d’accès" aria-label="Code d’accès responsable" required><button class="btn" type="submit">Entrer</button></form>
+      <form class="street-tools" data-form="admin-code"><input class="input" name="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="Code d’accès" aria-label="Code d’accès responsable" required><button class="btn" type="submit">Entrer</button></form>
     </section>
   </div>`;
 }
@@ -1431,7 +1431,7 @@ PAGES.settings = (args) => {
     <section class="card"><div class="card-h"><h2>Sur ce téléphone</h2><span class="role-pill">${admin ? ico('gear', 'sm') + ' Responsable' : ico('door', 'sm') + ' Distributeur'}</span></div>
       ${meBlock()}
       ${admin ? '<button class="link" data-act="leave-admin" style="margin-top:14px">Quitter l’accès responsable</button>'
-              : `<form class="street-tools" style="margin-top:14px" data-form="admin-code"><input class="input" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code d’accès responsable" aria-label="Code d’accès responsable" required><button class="btn ghost" type="submit">Entrer</button></form>`}
+              : `<form class="street-tools" style="margin-top:14px" data-form="admin-code"><input class="input" name="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="Code d’accès responsable" aria-label="Code d’accès responsable" required><button class="btn ghost" type="submit">Entrer</button></form>`}
     </section>
     ${admin ? `<section class="card" id="sec-campaign"><div class="card-h"><h2>Campagne</h2></div>
       <div class="field"><label for="set-name">Nom affiché</label><input id="set-name" class="input" data-set="name" value="${esc(set.name || '')}"></div>
@@ -1645,7 +1645,7 @@ PAGES.welcome = (args) => {
     ${back('intro')}
     <h1 class="w-title sm">Code d’accès</h1>
     <p>Le code d’accès responsable ouvre la carte complète et la répartition des rues. Les distributeurs n’en ont pas besoin : ils choisissent seulement leur prénom.</p>
-    <form data-form="w-code" style="display:grid;gap:12px"><input class="input code-input" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX" aria-label="Code d’accès responsable" required><button class="btn red block" type="submit">Entrer</button></form>
+    <form data-form="w-code" style="display:grid;gap:12px"><input class="input code-input" name="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="••••" aria-label="Code d’accès responsable" required><button class="btn red block" type="submit">Entrer</button></form>
   </div>` };
   if (step === 'zones') {
     const n = UI.autoN || 6, S = stats();

@@ -4,6 +4,6 @@
 // Code d'accès responsable : seule son empreinte (PBKDF2-SHA256) est publiée ici, jamais le code lui-même.
 // Pour le changer : générer une nouvelle empreinte (voir README.md).
 window.CAL_CONFIG = {
-  adminHash: 'pbkdf2$150000$GGrVmZiKCr6rvQWCZbG0pQ==$N4JHhvqtCAAt+otbhMx62D/ywhvZ6HumdbvYK00MC3c=',
+  adminHash: 'pbkdf2$150000$S65+c7mM6QRXDd1qNOLYSQ==$auTHr4/VwB4DOSQ85ynuVjtKVqWffBP712vHyXBB/c0=',
   sheetUrl: 'https://script.google.com/macros/s/AKfycbxZDbR-oOswPdjuYc4nY7Zhecu4p0FVvQwgkQ6ZS0fJopE8OMQoQ3dYQwknfl_peBlz/exec',
 };

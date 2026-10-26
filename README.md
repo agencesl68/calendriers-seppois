@@ -7,7 +7,7 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour org
 | | **Responsable** | **Distributeur** |
 | --- | --- | --- |
 | Pour qui | Ceux qui répartissent les rues | Tous ceux qui font les portes |
-| Comment | Code d'accès responsable (format XXXX-XXXX) | Rien à saisir |
+| Comment | Code d'accès responsable | Rien à saisir |
 | Ce qu'il fait | Voit toute la carte en direct, ajoute les prénoms, touche une rue puis les prénoms de ceux qui la font | Choisit son prénom, voit seulement ses rues (en rouge) et note à chaque porte « Calendrier donné » ou « À repasser » |
 
 À la première ouverture, le responsable touche **Je suis le responsable** et entre le code d'accès : son téléphone relie alors l'équipe à la feuille Google. L'app propose ensuite une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
