@@ -7,12 +7,20 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour org
 | | **Responsable** | **Distributeur** |
 | --- | --- | --- |
 | Pour qui | Ceux qui répartissent les rues | Tous ceux qui font les portes |
-| Comment | Code à 4 chiffres | Rien à saisir |
-| Ce qu'il fait | Crée les secteurs, y affecte les équipes, ajoute les pompiers, exporte | Choisit son prénom et celui des personnes avec lui, puis fait sa tournée |
+| Comment | Code d'accès responsable (format XXXX-XXXX) | Rien à saisir |
+| Ce qu'il fait | Voit toute la carte en direct, ajoute les prénoms, touche une rue puis les prénoms de ceux qui la font | Choisit son prénom, voit seulement ses rues (en rouge) et note à chaque porte « Calendrier donné » ou « À repasser » |
 
-À la première ouverture, le responsable crée son code, puis l'app propose une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
+À la première ouverture, le responsable touche **Je suis le responsable** et entre le code d'accès : son téléphone relie alors l'équipe à la feuille Google. L'app propose ensuite une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
 
-Un distributeur ouvre l'app, touche son prénom et celui des **1 à 3 personnes** qui tournent avec lui, et c'est tout. Chaque porte notée est automatiquement au nom de toute l'équipe. Pour passer responsable : onglet **Mon équipe**, puis le code.
+Un distributeur ouvre l'app, touche son prénom et celui des **1 à 3 personnes** qui tournent avec lui, et c'est tout. Chaque porte notée est automatiquement au nom de toute l'équipe. Pour passer responsable : **Réglages › Sur ce téléphone**, puis le code d'accès.
+
+### Changer le code d'accès responsable
+
+Le code n'est écrit nulle part dans le dépôt : `config.js` ne contient que son empreinte (`adminHash`). Pour en choisir un nouveau, générez l'empreinte puis remplacez la ligne `adminHash` de `config.js` :
+
+```bash
+node -e "const c=require('crypto'),code=process.argv[1].toUpperCase().replace(/[^A-Z0-9]/g,''),s=c.randomBytes(16);console.log('pbkdf2\$150000\$'+s.toString('base64')+'\$'+c.pbkdf2Sync(code,s,150000,32,'sha256').toString('base64'))" NOUVEAU-CODE
+```
 
 ## Ce que fait l'app
 
@@ -94,7 +102,7 @@ Avant d'envoyer les fichiers modifiés sur GitHub, changez la valeur de `VERSION
 
 ## Vie privée
 
-Le nom de l'occupant est **facultatif** : ne le notez que si c'est utile pour repasser. Les données restent dans les téléphones et dans votre feuille Google. À la fin de la campagne, effacez les noms dans la feuille.
+Le nom de l'occupant est **facultatif** : ne le notez que si c'est utile pour repasser. Les données restent dans les téléphones et dans votre feuille Google. **Gardez la feuille privée** (Partager › Accès général : *Limité*) : le script la lit pour vous, personne d'autre n'a besoin du lien. À la fin de la campagne, effacez les noms dans la feuille.
 
 ## Sources et licences
 
