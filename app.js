@@ -123,7 +123,7 @@ const Sync = {
   start() {
     this.stop();
     if (!this.configured || !this.code) { this.set('local'); return; }
-    this.timer = setInterval(() => { if (document.visibilityState === 'visible') this.cycle(); }, 20000);
+    this.timer = setInterval(() => { if (document.visibilityState === 'visible' && ((Role.admin && UI.view === 'map') || Date.now() - this.lastOk > 18000)) this.cycle(); }, 10000);
     this.cycle();
   },
   stop() { clearInterval(this.timer); clearTimeout(this._t); this.timer = 0; },
@@ -315,6 +315,7 @@ function assignStreetToZone(sk, zoneId) {
   }
   const to = zoneId && Store.s.zones[zoneId];
   if (to && !to.del) Store.put('zone', to.id, { ...to, addrs: [...new Set([...(to.addrs || []), ...ids])] });
+  pruneAutoZones();
   return ids.size;
 }
 function orderStreetUnits(sk, order = 'sides') {
@@ -324,6 +325,40 @@ function orderStreetUnits(sk, order = 'sides') {
   return list.flatMap((a) => unitsOf(a.id));
 }
 
+/** Équipe d'une rue : les personnes du secteur qui contient toutes ses adresses (rue partagée sinon). */
+function streetTeamOf(st) {
+  const zi = zoneIndex(), ids = new Set(st.addrs.map((a) => zi.get(a.id) || ''));
+  if (ids.size > 1) ids.delete(''); // quelques maisons oubliées ne cachent pas l'équipe de la rue
+  if (ids.size !== 1) return { shared: true, zone: null, members: [] };
+  const z = Store.s.zones[[...ids][0]];
+  return { shared: false, zone: z && !z.del ? z : null, members: z && !z.del ? (z.members || []).filter(member) : [] };
+}
+/** Confie toute une rue à ces personnes : dans le secteur de cette équipe, ou un nouveau secteur à leurs noms. */
+function assignStreetToPeople(sk, ids) {
+  const st = streetOf(sk); if (!st) return;
+  ids = ids.filter(member);
+  const key = (l) => [...l].sort().join('|');
+  let z = ids.length ? zones().find((x) => { const lm = (x.members || []).filter(member); return lm.length && key(lm) === key(ids); }) : null;
+  if (ids.length && !z) {
+    const id = uid('z'), color = ZONE_COLORS.find((c) => !zones().some((x) => x.color === c)) || ZONE_COLORS[zones().length % ZONE_COLORS.length];
+    z = Store.put('zone', id, { id, name: names(ids), color, members: [...ids], addrs: [], order: zones().length, auto: true });
+  }
+  assignStreetToZone(sk, z ? z.id : '');
+}
+/** Les secteurs créés en touchant des prénoms disparaissent quand ils n'ont plus aucune maison. */
+function pruneAutoZones() {
+  const idx = addrIdx();
+  for (const x of zones()) if (x.auto && !(x.addrs || []).some((id) => idx.has(id))) Store.put('zone', x.id, { ...x, del: true });
+}
+/** Fiche d'une rue, responsable : un toucher sur un prénom attribue (ou retire) toute la rue. */
+function streetPeople(sk) {
+  const st = streetOf(sk), t = streetTeamOf(st), ms = members();
+  return `<div class="field"><span class="lbl">Qui fait cette rue ?</span>
+    ${ms.length ? `<div class="chips wrap">${ms.map((m) => `<button class="chip mchip" data-act="st-member" data-sk="${esc(sk)}" data-v="${m.id}" aria-pressed="${t.members.includes(m.id)}">${avatar(m.id, 'sm')} ${esc(m.name)}</button>`).join('')}</div>` : '<p class="muted" style="margin:0">Ajoutez les prénoms des distributeurs, puis touchez-les pour leur confier la rue.</p>'}
+    <form class="street-tools" data-form="st-add-member" data-sk="${esc(sk)}"><input class="input" name="name" placeholder="Ajouter un prénom" autocomplete="off" autocapitalize="words" aria-label="Prénom à ajouter"><button class="btn ghost" type="submit">Ajouter</button></form>
+    <small class="muted">${t.shared ? 'Rue partagée entre plusieurs équipes : toucher un prénom confie toute la rue à cette équipe.' : t.members.length ? `Confiée à <b>${esc(names(t.members))}</b> : ils la voient en rouge sur leur carte.` : 'Personne pour l’instant : touchez un ou plusieurs prénoms.'}</small>
+  </div>`;
+}
 /** Les secteurs confiés à l'équipe de ce téléphone. */
 const myZones = () => { const t = Me.team(); return t.length ? zones().filter((z) => (z.members || []).some((m) => t.includes(m))) : []; };
 /** Adresses confiées à l'équipe de ce téléphone. */
@@ -477,6 +512,7 @@ function saveZone(z) {
   }
   const cur = Store.s.zones[z.id] || {};
   Store.put('zone', z.id, { ...cur, ...z, addrs: [...set] });
+  pruneAutoZones();
 }
 function moveAddrToZone(addrId, zoneId) {
   const from = zoneOf(addrId);
@@ -484,6 +520,7 @@ function moveAddrToZone(addrId, zoneId) {
   if (from) Store.put('zone', from.id, { ...from, addrs: (from.addrs || []).filter((x) => x !== addrId) });
   const to = Store.s.zones[zoneId];
   if (to && !to.del) Store.put('zone', to.id, { ...to, addrs: [...new Set([...(to.addrs || []), addrId])] });
+  pruneAutoZones();
 }
 
 // ═════════════════════════ Géométrie & découpage automatique
@@ -634,6 +671,7 @@ const App = {
   _raf: 0, installPrompt: null, day: isoDay(),
   changed() { if (this._raf) return; this._raf = requestAnimationFrame(() => { this._raf = 0; this.render(); }); },
   render() {
+    if (!Role.admin && (UI.view === 'home' || UI.view === 'team')) { go('map'); return; }
     renderHeader();
     const el = $('#v-' + UI.view), ae = document.activeElement;
     const busy = ae && el?.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.id !== 'street-q';
@@ -642,11 +680,12 @@ const App = {
     if (Page.cur) Page.refresh();
     if (Sheet.refresh) Sheet.refresh();
   },
-  renderSync() { renderHeader(); if (Page.cur === 'settings') Page.refresh(); },
+  renderSync() { renderHeader(); liveLine(); if (Page.cur === 'settings') Page.refresh(); },
 };
 const VIEWS = { home: renderHome, map: renderMapView, tour: renderTour, rep: renderRep, team: renderTeam };
 function go(v) {
   if (!VIEWS[v]) v = 'home';
+  if (!Role.admin && (v === 'home' || v === 'team')) v = 'map'; // distributeur : sa carte, sa tournée, ses repasses
   const changed = UI.view !== v;
   UI.view = v; saveUI();
   $$('#main > .view').forEach((el) => (el.hidden = el.id !== 'v-' + v));
@@ -674,6 +713,7 @@ function renderHeader() {
   $$('.tabs > button').forEach((x) => (x.dataset.v === UI.view ? x.setAttribute('aria-current', 'page') : x.removeAttribute('aria-current')));
   const tTab = $('.tabs > button[data-v="team"] span');
   if (tTab) tTab.textContent = Role.admin ? 'Répartition' : 'Mon équipe';
+  $$('.tabs > button[data-v="home"], .tabs > button[data-v="team"]').forEach((b) => (b.hidden = !Role.admin));
 }
 
 // ═════════════════════════ Accueil
@@ -775,7 +815,7 @@ function streetMini(st) {
 
 function repRow(r) {
   const late = r.date < isoDay();
-  return `<button class="mini-row" data-act="unit" data-id="${r.u.id}"><span class="when" style="${late ? 'color:var(--st-refus)' : ''}">${late ? 'Retard' : SLOT_SHORT[r.slot] || '—'}</span><span class="dot" data-st="${r.p.status}"></span><span class="grow"><b>${esc(unitTitle(r.u))}</b><small>${esc([r.a.com, r.p.rp?.note || STATUS[r.p.status].label].join(' · '))}</small></span>${ico('chev-r', 'sm')}</button>`;
+  return `<button class="mini-row" data-act="unit" data-id="${r.u.id}"><span class="when" style="${late ? 'color:var(--danger)' : ''}">${late ? 'Retard' : SLOT_SHORT[r.slot] || '—'}</span><span class="dot" data-st="${r.p.status}"></span><span class="grow"><b>${esc(unitTitle(r.u))}</b><small>${esc([r.a.com, r.p.rp?.note || STATUS[r.p.status].label].join(' · '))}</small></span>${ico('chev-r', 'sm')}</button>`;
 }
 function evRow({ u, h }, timeOnly = false) {
   return `<button class="mini-row" data-act="unit" data-id="${u.id}"><span class="when">${timeOnly ? hhmm(h.at) : dayShort(h.at)}</span><span class="dot" data-st="${h.s}"></span><span class="grow"><b>${esc(unitTitle(u))}</b><small>${STATUS[h.s].label} · ${esc(u.a.com)}${h.by?.length ? ' · ' + esc(names(h.by)) : ''}</small></span></button>`;
@@ -794,7 +834,9 @@ function renderMapView() {
   const c = blankSt(), zi = zoneIndex();
   for (const u of units()) if (mapKeep(u.a, zi)) c[statusOf(u.id)]++;
   const tot = sum(Object.values(c));
-  $('#map-filters').innerHTML = [['all', 'Tous', tot], ...ST_FILTER.map((k) => [k, STATUS[k].short, c[k]])]
+  const keys = Role.admin ? ST_FILTER : ST_FILTER.filter((k) => k === 'todo' || k === 'done' || k === 'repasse' || c[k]);
+  if (UI.filter !== 'all' && !keys.includes(UI.filter)) UI.filter = 'all'; // filtre gardé d'un autre accès
+  $('#map-filters').innerHTML = [['all', 'Tous', tot], ...keys.map((k) => [k, STATUS[k].short, c[k]])]
     .map(([k, l, n]) => `<button class="chip" data-act="filter" data-v="${k}" aria-pressed="${UI.filter === k}">${k !== 'all' ? `<span class="dot" data-st="${k}"></span>` : ''}${l} <small>${n}</small></button>`).join('')
     + (Role.admin ? `<select class="input sm zone-sel" data-change="com" aria-label="Commune"><option value="">Toutes les communes</option>${COMMUNES.map((x) => `<option ${UI.com === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` : '')
     + (Role.admin && zs.length ? `<select class="input sm zone-sel" data-change="zone" aria-label="Secteur"><option value="">Tous les secteurs</option>${zs.map((z) => `<option value="${z.id}" ${UI.zone === z.id ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}<option value="__none" ${UI.zone === '__none' ? 'selected' : ''}>Sans secteur (${unassigned().length})</option></select>` : '');
@@ -803,18 +845,27 @@ function renderMapView() {
   $('#streets-host').hidden = UI.mapMode !== 'streets';
   if (UI.mapMode === 'streets') renderStreets();
   else {
-    const mine = myZones();
-    $('#map-legend').innerHTML = ST_FILTER.map((k) => `<div><span class="dot" data-st="${k}"></span>${STATUS[k].short}<b>${c[k]}</b></div>`).join('')
-      + `<div class="legend-foot">${Role.admin ? 'Touchez une rue pour la gérer' : `Vos rues · ${esc(mine.map((z) => z.name).join(', '))}`}</div>`;
+    const live = Sync.code ? '<span id="map-live"></span>' : '';
+    $('#map-legend').innerHTML = keys.map((k) => `<div><span class="dot" data-st="${k}"></span>${STATUS[k].short}<b>${c[k]}</b></div>`).join('')
+      + `<div class="legend-foot">${Role.admin ? `Touchez une rue pour l’attribuer${live}` : `<span class="zdot" style="--c:var(--red)"></span> Vos rues${live}`}</div>`;
+    liveLine();
     $('#map-legend').hidden = !!MapView.lasso || (!Role.admin && !tot);
     let hint = $('#map-hint');
     if (!hint) { hint = document.createElement('div'); hint.id = 'map-hint'; hint.className = 'map-empty'; $('#map-host').appendChild(hint); }
     hint.hidden = Role.admin || tot > 0;
-    hint.innerHTML = Me.team().length
+    hint.innerHTML = Sync.configured && !Sync.code && !Store.demoOn
+      ? `<b>Reliez ce téléphone à l’équipe</b><span>Scannez le QR code du responsable avec l’appareil photo : vos rues apparaîtront ici, en rouge.</span><button class="btn sm" data-act="page" data-v="welcome" data-step="join">J’ai le code de l’équipe</button>`
+      : Me.team().length
       ? `<b>Aucune rue pour l’instant</b><span>Pas encore de rues pour ${esc(names(Me.team()))} : elles apparaîtront ici dès que le responsable les aura attribuées.</span>`
       : `<b>Qui êtes-vous ?</b><span>Choisissez votre prénom pour voir vos rues sur la carte.</span><button class="btn sm" data-act="me-sheet">Choisir</button>`;
     $('#layer-lbl').textContent = MapView.layer === 'sat' ? 'Plan' : 'Satellite';
   }
+}
+/** Légende de la carte : heure de la dernière synchro réussie. */
+function liveLine() {
+  const el = $('#map-live'); if (!el) return;
+  const ok = Sync.state === 'online' || Sync.state === 'syncing';
+  el.innerHTML = Sync.lastOk ? `<br>${ok ? 'En direct' : 'Dernière synchro'} · ${hhmm(Sync.lastOk)}` : '';
 }
 function renderStreets() {
   const host = $('#streets-host');
@@ -993,6 +1044,10 @@ function renderTour() {
   requestAnimationFrame(() => { const c = $('.tour-strip [aria-current="true"]'); if (c) c.parentElement.scrollLeft = c.offsetLeft - c.parentElement.clientWidth / 2 + 22; });
 }
 function tourActs() {
+  if (!Role.admin) return `<div class="acts two">
+    <button class="act big" data-st="done" data-act="td-done">${ico('check')} Calendrier donné</button>
+    <button class="act big" data-st="repasse" data-act="td-repasse">${ico('repeat')} À repasser</button>
+  </div>`;
   return `<div class="acts">
     <button class="act big" data-st="done" data-act="td-done">${ico('check')} Calendrier donné</button>
     <button class="act" data-st="absent" data-act="td-later" data-v="absent">${ico('absent')}Absent</button>
@@ -1019,6 +1074,7 @@ function tourSetup() {
   const row = (st) => { const r = S.byStreet.get(st.sk), o = openN(st); return `<button class="street-row" data-act="tour-start" data-v="${esc(st.sk)}"><div class="sr-top"><b>${esc(st.name)}</b><span>${r.visited}/${r.total}</span></div>${stackBar(r.st, r.total, 'sm')}<div class="sr-foot"><span class="grow">${esc(st.com)} · ${o ? `${o} foyer${o > 1 ? 's' : ''} à faire ou revoir` : 'rue terminée'}</span>${r.members.size ? avatars([...r.members]) : ''}</div></button>`; };
   const others = (Role.admin ? streets() : []).filter((st) => !myStreets.includes(st) && (!UI.com || st.com === UI.com)).sort((a, b) => (openN(a) ? 0 : 1) - (openN(b) ? 0 : 1) || a.ci - b.ci || sortKey(a.name).localeCompare(sortKey(b.name), 'fr'));
   return `<div class="view-in">
+    ${Role.admin ? '' : oldIconCard() + linkCard()}
     <div class="tour-top">${tourTeamLine()}</div>
     <h2 class="display">Où tournez-vous ?</h2>
     <button class="near-btn" data-act="tour-near">${ico('locate')}<span><b>Portes autour de moi</b><small>Le GPS propose le foyer le plus proche à faire.</small></span></button>
@@ -1033,7 +1089,7 @@ function tourSetup() {
 // ═════════════════════════ Repasses
 function renderRep() {
   const el = $('#v-rep'), list = repasses(), today = isoDay();
-  const absNo = units().filter((u) => { const p = pass(u.id); return p?.status === 'absent' && !p.rp?.date; });
+  const absNo = units().filter((u) => { if (!visibleAddr(u.a)) return false; const p = pass(u.id); return p?.status === 'absent' && !p.rp?.date; });
   const groups = new Map();
   for (const r of list) { const k = !r.date ? 'none' : r.date < today ? 'late' : r.date; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
   const keys = ['late', ...[...groups.keys()].filter((k) => k !== 'late' && k !== 'none').sort(), 'none'].filter((k) => groups.has(k));
@@ -1177,6 +1233,9 @@ function openStreetSheet(sk) {
   MapView.selStreet = sk; MapView.draw();
   const draw = () => {
     if (!SS) return;
+    const ae = document.activeElement;
+    if (ae && panel.contains(ae) && ((ae.tagName === 'INPUT' && ae.value) || ae.tagName === 'SELECT')) return;
+    const adv = panel.querySelector('details.more')?.open;
     const st2 = streetOf(SS.sk), r = stats().byStreet.get(SS.sk), zs = zones();
     const inZ = new Map();
     for (const a of st2.addrs) { const z = zoneOf(a.id); const k = z ? z.id : ''; inZ.set(k, (inZ.get(k) || 0) + 1); }
@@ -1191,14 +1250,13 @@ function openStreetSheet(sk) {
         <div class="kpi"><b>${r.st.todo}</b><span>à faire</span></div>
         <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>absents · repasses</span></div>
       </div>
-      ${Role.admin ? `<div class="field"><label for="st-zone">Secteur de toute la rue</label>
+      ${Role.admin ? streetPeople(SS.sk) + `<details class="more" ${adv ? 'open' : ''}><summary>Secteur (avancé)</summary><div><div class="field"><label for="st-zone">Secteur de toute la rue</label>
         <select id="st-zone" class="input" data-change="street-zone" data-sk="${esc(SS.sk)}">
           <option value="">${zs.length ? '— Sans secteur —' : 'Aucun secteur créé'}</option>
           ${zs.map((z) => `<option value="${z.id}" ${only === z.id ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}
         </select>
         <small class="muted">${inZ.size > 1 ? `Partagée entre ${inZ.size} secteurs : choisir en range ${st2.addrs.length > 1 ? 'toutes les adresses' : "l'adresse"} dans un seul.` : 'Toutes les adresses de la rue suivront ce choix.'}</small>
-      </div>` : (only && Store.s.zones[only] ? `<div class="note-box">Équipe : <b>${esc(names(Store.s.zones[only].members)) || 'à désigner'}</b> · secteur ${esc(Store.s.zones[only].name)}</div>` : '')}
-      ${Role.admin && !zs.length ? `<button class="btn ghost block" data-act="street-newzone" data-v="${esc(SS.sk)}">${ico('plus')} Créer un secteur avec cette rue</button>` : ''}
+      </div></div></details>` : (only && Store.s.zones[only] ? `<div class="note-box">Équipe : <b>${esc(names(Store.s.zones[only].members)) || 'à désigner'}</b> · secteur ${esc(Store.s.zones[only].name)}</div>` : '')}
       <div class="grid2">
         <button class="btn ghost" data-act="street-houses" data-v="${esc(SS.sk)}">${ico('grid')} Les maisons</button>
         <button class="btn ghost" data-act="street-zoom" data-v="${esc(SS.sk)}">${ico('expand')} Cadrer</button>
@@ -1238,7 +1296,7 @@ function openUnit(unitId, opts = {}) {
       by: team.length ? team : [...(p?.by || [])],
     },
   };
-  if (AS.d.status === 'repasse' && !AS.d.rp.date) AS.d.rp.date = addDays(isoDay(), 1);
+  if (AS.d.status === 'repasse' && !AS.d.rp.date && Role.admin) AS.d.rp.date = addDays(isoDay(), 1);
   Sheet.open('addr', () => { MapView.sel = null; MapView.draw(); AS = null; });
   MapView.sel = u.a.id; MapView.draw();
   drawUnitSheet();
@@ -1256,8 +1314,9 @@ function drawUnitSheet() {
     <button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button>
   </header>
   <div class="sheet-body">
-    <div class="st-pick">${['done', 'absent', 'repasse', 'refus'].map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
-    ${d.status === 'absent' || d.status === 'repasse' ? `
+    <div class="st-pick">${(Role.admin ? ['done', 'absent', 'repasse', 'refus'] : ['done', 'repasse']).map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
+    ${!Role.admin && d.status === 'repasse' ? `<input class="input" data-bind="rp.note" value="${esc(d.rp.note)}" placeholder="Note pour la repasse (ex. revenir après 18 h)" aria-label="Consigne pour la repasse">`
+    : d.status === 'absent' || d.status === 'repasse' ? `
       <div class="field"><span class="lbl">${d.status === 'absent' ? 'Programmer une repasse (facultatif)' : 'Quand repasser ?'}</span>
         <div class="chips wrap">${d.status === 'absent' ? `<button class="chip" data-act="as-rpdate" data-v="" aria-pressed="${!d.rp.date}">Pas de repasse</button>` : ''}${dateChoices().map(([v, l]) => `<button class="chip" data-act="as-rpdate" data-v="${v}" aria-pressed="${d.rp.date === v}">${l}</button>`).join('')}<label class="chip date-chip">${ico('cal', 'sm')}<input type="date" data-bind="rp.date" value="${esc(d.rp.date)}" aria-label="Autre date"></label></div>
       </div>
@@ -1299,7 +1358,7 @@ function openMeSheet() {
     panel.innerHTML = `<div class="sheet-grab"></div>
     <header class="sheet-head"><div class="t"><b>Qui fait la tournée ?</b><small>Votre prénom et celui des personnes avec vous, souvent 2 ou 3.</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
     <div class="sheet-body">${meBlock()}</div>
-    <footer class="sheet-foot">${members().length ? `<button class="btn block" data-act="sheet-close" ${t.length ? '' : 'disabled'}>${t.length ? 'C’est parti' : 'Choisissez au moins une personne'}</button>` : '<button class="btn block" data-act="go" data-v="team">Voir l’équipe</button>'}</footer>`;
+    <footer class="sheet-foot">${members().length ? `<button class="btn block" data-act="sheet-close" ${t.length ? '' : 'disabled'}>${t.length ? 'C’est parti' : 'Choisissez au moins une personne'}</button>` : (Role.admin ? '<button class="btn block" data-act="go" data-v="team">Voir l’équipe</button>' : '<button class="btn block ghost" data-act="sheet-close">Fermer · la liste arrivera dès que le responsable l’aura créée</button>')}</footer>`;
   };
   draw(); Sheet.refresh = draw;
 }
@@ -1852,7 +1911,7 @@ const MapView = {
       if (off.width !== this.canvas.width || off.height !== this.canvas.height) { off.width = this.canvas.width; off.height = this.canvas.height; }
       const o = off.getContext('2d'), idx = addrIdx(), rad = Math.max(4, 24 / mpp);
       o.setTransform(this._dpr, 0, 0, this._dpr, 0, 0); o.clearRect(0, 0, W, H);
-      for (const zn of zs) { o.fillStyle = zn.color; o.beginPath(); for (const id of zn.addrs || []) { const a = idx.get(id); if (!a) continue; const p = P(a.lat, a.lon); if (!inView(p, rad)) continue; o.moveTo(p.x + rad, p.y); o.arc(p.x, p.y, rad, 0, Math.PI * 2); } o.fill(); }
+      for (const zn of zs) { o.fillStyle = Role.admin || L0 ? zn.color : c.red; o.beginPath(); for (const id of zn.addrs || []) { const a = idx.get(id); if (!a) continue; const p = P(a.lat, a.lon); if (!inView(p, rad)) continue; o.moveTo(p.x + rad, p.y); o.arc(p.x, p.y, rad, 0, Math.PI * 2); } o.fill(); }
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = sat ? 0.3 : 0.2; ctx.drawImage(off, 0, 0); ctx.restore();
     }
     // Distributeur : ses rues tracées dans la couleur de son secteur
@@ -1861,7 +1920,7 @@ const MapView = {
       ctx.lineWidth = clamp(9 * Math.pow(2, z - 17), 4, 24); ctx.globalAlpha = sat ? 0.6 : 0.4;
       for (const st of visStreets()) {
         const e = streetRoads().get(st.sk); if (!e) continue;
-        ctx.strokeStyle = zoneOf(st.addrs.find(visibleAddr).id)?.color || c.red;
+        ctx.strokeStyle = c.red;
         for (const line of e.lines) { ctx.beginPath(); line.forEach((ll, i) => { const q = P(ll[0], ll[1]); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }); ctx.stroke(); }
       }
       ctx.restore();
@@ -1928,7 +1987,7 @@ const MapView = {
     if (L0?.path?.length > 1) {
       ctx.beginPath(); L0.path.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath();
       ctx.fillStyle = L0.mode === 'remove' ? 'rgba(210,43,61,.12)' : 'rgba(47,111,228,.12)'; ctx.fill();
-      ctx.setLineDash([6, 5]); ctx.lineWidth = 2.5; ctx.strokeStyle = L0.mode === 'remove' ? c.st.refus : ZE.color; ctx.stroke(); ctx.setLineDash([]);
+      ctx.setLineDash([6, 5]); ctx.lineWidth = 2.5; ctx.strokeStyle = L0.mode === 'remove' ? c.red : ZE.color; ctx.stroke(); ctx.setLineDash([]);
     }
     // Ma position
     if (Geo.pos) {
@@ -2129,7 +2188,7 @@ const A = {
   unit: (el) => { const u = unitIdx().get(el.dataset.id); if (u) openUnit(u.id, { status: el.dataset.status, tour: BS?.opts?.tour }); },
   'bld-n': (el) => { const a = BS?.id; if (a) setBld(a, unitsOf(a).length + +el.dataset.v); },
   'as-bld': () => { const u = unitIdx().get(AS.id), tour = AS.opts.tour; Sheet.close(); openBuilding(u.a.id, { tour }); },
-  'as-status': (el) => { AS.d.status = el.dataset.v; if (AS.d.status === 'repasse' && !AS.d.rp.date) AS.d.rp.date = addDays(isoDay(), 1); drawUnitSheet(); },
+  'as-status': (el) => { AS.d.status = el.dataset.v; if (AS.d.status === 'repasse' && !AS.d.rp.date && Role.admin) AS.d.rp.date = addDays(isoDay(), 1); drawUnitSheet(); },
   'as-rpdate': (el) => { AS.d.rp.date = el.dataset.v; drawUnitSheet(); },
   'as-slot': (el) => { AS.d.rp.slot = AS.d.rp.slot === el.dataset.v ? '' : el.dataset.v; drawUnitSheet(); },
   'as-by': (el) => { const v = el.dataset.v, by = AS.d.by; AS.d.by = by.includes(v) ? by.filter((x) => x !== v) : [...by, v]; drawUnitSheet(); },
@@ -2137,6 +2196,11 @@ const A = {
   'as-reset': () => { AS.d.status = 'todo'; asSave(); },
   'as-tour': () => { const u = unitIdx().get(AS.id); UI.tour = { ...UI.tour, street: u.a.sk, near: false, cur: u.id }; TD = freshTD(u.id); saveUI(); Sheet.close(); go('tour'); },
   'toast-undo': () => { const t = $('#toast'); t._undo?.(); t._undo = null; t.hidden = true; },
+  'st-member': (el) => {
+    const sk = el.dataset.sk, st = streetOf(sk); if (!st || !Role.admin) return;
+    const t = streetTeamOf(st), id = el.dataset.v, cur = t.shared ? [] : t.members;
+    assignStreetToPeople(sk, cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]); vibrate(10);
+  },
   'tour-start': (el) => { UI.tour = { ...UI.tour, street: el.dataset.v, near: false, cur: null }; TD = freshTD(null); saveUI(); if (Page.cur) Page.close(); Sheet.close(); go('tour'); },
   'tour-near': () => { UI.tour = { ...UI.tour, near: true, street: null, cur: null }; saveUI(); Geo.start(); App.changed(); },
   'tour-pick': () => { UI.tour = { ...UI.tour, street: null, near: false, cur: null }; saveUI(); App.changed(); $('#v-tour').scrollTop = 0; },
@@ -2149,6 +2213,7 @@ const A = {
   'td-mode': (el) => { TD.mode = el.dataset.v || null; App.changed(); },
   'td-later': (el) => { TD.mode = 'later'; TD.status = el.dataset.v; if (TD.status === 'repasse' && !TD.rpDate) TD.rpDate = addDays(isoDay(), 1); App.changed(); },
   'td-refus': () => tourSave('refus'),
+  'td-repasse': () => { const o = pass(UI.tour.cur)?.rp; tourSave('repasse', o ? { rp: { date: o.date && o.date > isoDay() ? o.date : '', slot: o.slot || '', note: o.note || '' } } : {}); },
   'td-rpdate': (el) => { TD.rpDate = el.dataset.v; App.changed(); },
   'td-slot': (el) => { TD.rpSlot = TD.rpSlot === el.dataset.v ? '' : el.dataset.v; App.changed(); },
   'td-done': () => tourSave('done'),
@@ -2158,7 +2223,7 @@ const A = {
   'mem-color': (el) => { const m = member(el.dataset.id); if (m) Store.put('member', m.id, { ...m, color: el.dataset.v }); },
   'mem-del-ask': () => Page.set({ confirm: true }),
   'mem-del-no': () => Page.set({ confirm: false }),
-  'mem-del': (el) => { const m = member(el.dataset.id); if (!m) return; Store.put('member', m.id, { ...m, del: true }); Me.set(Me.team().filter((x) => x !== m.id)); Page.close(); toast(`${m.name} a été retiré de la liste.`); },
+  'mem-del': (el) => { const m = member(el.dataset.id); if (!m) return; Store.put('member', m.id, { ...m, del: true }); for (const z of zones()) if ((z.members || []).includes(m.id)) Store.put('zone', z.id, { ...z, members: z.members.filter((x) => x !== m.id) }); Me.set(Me.team().filter((x) => x !== m.id)); Page.close(); toast(`${m.name} a été retiré de la liste.`); },
   // Secteurs
   'zone-new': () => { ZE = newZE(); Page.open('zone'); },
   'zone-edit': (el) => { const z = Store.s.zones[el.dataset.v]; if (z) openZoneEditor(z); },
@@ -2222,6 +2287,14 @@ const FORMS = {
     const add = list.filter((n) => !members().some((m) => norm(m.name) === norm(n)));
     add.forEach(addMember); f.reset();
     toast(add.length ? `${add.length} personne${add.length > 1 ? 's' : ''} ajoutée${add.length > 1 ? 's' : ''}.` : 'Ces prénoms sont déjà dans la liste.');
+  },
+  'st-add-member': (f) => {
+    const n = f.elements.name.value.trim(); if (!n || !Role.admin) return;
+    if (members().some((m) => norm(m.name) === norm(n))) { toast('Ce prénom est déjà dans la liste.'); return; }
+    f.elements.name.blur();
+    const id = addMember(n), sk = f.dataset.sk, st = streetOf(sk);
+    if (st) { const t = streetTeamOf(st); assignStreetToPeople(sk, [...(t.shared ? [] : t.members), id]); }
+    f.reset();
   },
   'admin-code': (f) => { if (tryAdmin(f.elements.code.value)) { f.reset(); go('team'); toast('Accès responsable activé.'); } },
   'w-create': (f) => {
@@ -2287,12 +2360,12 @@ document.addEventListener('change', (e) => {
   else if (ch === 'sort') { UI.sort = t.value; saveUI(); renderStreets(); }
   else if (ch === 'hist-member') Page.set({ m: t.value });
   else if (ch === 'street-zone') {
-    const sk = t.dataset.sk, n = assignStreetToZone(sk, t.value);
+    const sk = t.dataset.sk, n = assignStreetToZone(sk, t.value); t.blur();
     toast(t.value ? `${streetOf(sk)?.name} · ${n} adresse${n > 1 ? 's' : ''} rangée${n > 1 ? 's' : ''} dans ${Store.s.zones[t.value].name}.` : `${streetOf(sk)?.name} retirée de son secteur.`);
   }
   else if (ch === 'addr-zone') {
     const id = t.dataset.id, z = t.value;
-    if (z) moveAddrToZone(id, z); else { const from = zoneOf(id); if (from) Store.put('zone', from.id, { ...from, addrs: from.addrs.filter((x) => x !== id) }); }
+    if (z) moveAddrToZone(id, z); else { const from = zoneOf(id); if (from) Store.put('zone', from.id, { ...from, addrs: from.addrs.filter((x) => x !== id) }); pruneAutoZones(); }
     toast(z ? `Adresse rangée dans ${Store.s.zones[z].name}.` : 'Adresse retirée de son secteur.');
   } else if (ch === 'unit-label') {
     const a = t.dataset.id, k = +t.dataset.k, b = Store.s.bld[a] || { n: unitsOf(a).length, labels: [] };
