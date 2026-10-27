@@ -1173,7 +1173,7 @@ function shareText() {
 function addMemberForm() {
   return `<form class="street-tools stack-sm" data-form="add-member"><textarea class="input" name="mname" rows="2" placeholder="Thomas K.&#10;Julie W." autocomplete="off" aria-label="Prénoms à ajouter" required></textarea><button class="btn" type="submit">${ico('plus')} Ajouter</button></form>`;
 }
-function renderTeam() { Role.admin ? renderAdmin() : renderMyTeam(); }
+function renderTeam() { renderAdmin(); } // les distributeurs n'ont pas cet onglet (go() les renvoie à la carte)
 
 /** Accès responsable : répartir les rues entre les équipes. */
 function renderAdmin() {
@@ -1211,26 +1211,6 @@ function renderAdmin() {
       <div class="card-h"><h2>Sur ce téléphone</h2></div>
       ${meBlock()}
       <button class="link" data-act="leave-admin" style="margin-top:14px">Quitter l’accès responsable</button>
-    </section>
-  </div>`;
-}
-
-/** Accès distributeur : qui je suis, et mes rues. */
-function renderMyTeam() {
-  const el = $('#v-team'), mine = myZones(), sts = mine.length ? zonesStreets(mine) : [];
-  const byCom = new Map();
-  for (const st of sts) { if (!byCom.has(st.com)) byCom.set(st.com, []); byCom.get(st.com).push(st); }
-  el.innerHTML = `<div class="view-in">
-    <h2 class="display">Mon équipe</h2>
-    <section class="card">${meBlock()}</section>
-    ${mine.length ? `<section class="card">
-      <div class="card-h"><h2>Mes rues</h2><span class="muted">${sts.length} rues · ${esc(mine.map((z) => z.name).join(', '))}</span></div>
-      ${[...byCom].map(([com, list]) => `<h3 class="com-h">${esc(com)} <small>${list.length}</small></h3><div class="mini-list">${list.map((st) => streetMini(st)).join('')}</div>`).join('')}
-    </section>` : `<section class="card"><div class="empty"><b>Aucune rue attribuée</b>${Me.team().length ? 'Le responsable n’a pas encore confié de rues à votre équipe.' : 'Choisissez d’abord qui est sur ce téléphone.'}</div></section>`}
-    <section class="card">
-      <div class="card-h"><h2>Responsable</h2></div>
-      <p class="muted" style="margin:0 0 12px">Vous répartissez les rues entre les équipes ? Entrez le code du responsable.</p>
-      <form class="street-tools" data-form="admin-code"><input class="input" name="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="Code d’accès" aria-label="Code d’accès responsable" required><button class="btn" type="submit">Entrer</button></form>
     </section>
   </div>`;
 }

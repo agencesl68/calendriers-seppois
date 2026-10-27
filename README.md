@@ -16,11 +16,13 @@ Un distributeur ouvre l'app, touche son prénom et celui des **1 à 3 personnes*
 
 ### Changer le code d'accès responsable
 
-Le code n'est écrit nulle part dans le dépôt : `config.js` ne contient que son empreinte (`adminHash`). Pour en choisir un nouveau, générez l'empreinte puis remplacez la ligne `adminHash` de `config.js` :
+Le code n'est écrit nulle part dans le dépôt : `config.js` ne contient que son empreinte (`adminHash`). Choisissez **uniquement des chiffres** (le clavier de l'app est numérique), générez l'empreinte puis remplacez la ligne `adminHash` de `config.js` :
 
 ```bash
-node -e "const c=require('crypto'),code=process.argv[1].toUpperCase().replace(/[^A-Z0-9]/g,''),s=c.randomBytes(16);console.log('pbkdf2\$150000\$'+s.toString('base64')+'\$'+c.pbkdf2Sync(code,s,150000,32,'sha256').toString('base64'))" NOUVEAU-CODE
+node -e "const c=require('crypto'),code=process.argv[1].toUpperCase().replace(/[^A-Z0-9]/g,''),s=c.randomBytes(16);console.log('pbkdf2\$150000\$'+s.toString('base64')+'\$'+c.pbkdf2Sync(code,s,150000,32,'sha256').toString('base64'))" 4321
 ```
+
+Ce code sépare les deux interfaces ; ce n'est pas une protection forte (un code à 4 chiffres se retrouve à partir de l'empreinte).
 
 ## Ce que fait l'app
 
