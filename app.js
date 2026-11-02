@@ -208,8 +208,9 @@ const Sync = {
       if (/incorrect/i.test(msg) && LS.get(K.made, '') === this.code) {
         // Ce téléphone a créé un code alors que l'équipe existe déjà : il doit la rejoindre (QR du responsable)
         this.stop(); this.code = ''; LS.del(K.code); LS.del(K.made); this.queue = {}; LS.set(K.queue, {}); this.set('local');
-        toast('L’équipe existe déjà sur la feuille : rejoignez-la avec son code (QR du responsable, dans Réglages › Équipe connectée).', { ms: 9000 });
+        toast('Cette feuille appartient déjà à une équipe : saisissez son code (onglet Réglages de la feuille, cellule B2).', { ms: 10000 });
         if (Page.cur === 'welcome') Page.set({ step: 'join' });
+        else if (!Page.cur && UI.view !== 'tour') Page.open('settings', { sec: 'sync' });
         return;
       }
       this.set(navigator.onLine ? 'error' : 'offline', msg);
@@ -796,11 +797,22 @@ function go(v) {
   const changed = UI.view !== v;
   UI.view = v; saveUI();
   $$('#main > .view').forEach((el) => (el.hidden = el.id !== 'v-' + v));
+  if (changed) { clearTimeout(App._ve); $$('#main > .view.v-enter').forEach((x) => x.classList.remove('v-enter')); }
   if (v === 'tour') Wake.on(); else Wake.off();
   App.render();
+  if (changed) {
+    const el = $('#v-' + UI.view);
+    el.classList.add('v-enter');
+    App._ve = setTimeout(() => el.classList.remove('v-enter'), 420);
+    setScrollShadow(el.scrollTop > 4);
+  }
   if (changed) $('#v-' + v).scrollTop = 0;
   if (v === 'map' && UI.mapMode === 'map') requestAnimationFrame(() => MapView.show());
 }
+
+/** Ombre sous l'en-tête : posée seulement quand la vue affichée est défilée. */
+let _shadow = false;
+function setScrollShadow(on) { if (on !== _shadow) { _shadow = on; document.body.classList.toggle('scrolled', on); } }
 
 // ═════════════════════════ En-tête
 function renderHeader() {
@@ -1474,13 +1486,17 @@ function openMeSheet() {
 // ═════════════════════════ Pages plein écran
 const Page = {
   cur: null, args: {},
-  open(name, args = {}) { this.cur = name; this.args = args; $('#page').hidden = false; this.render(true); if (args.sec) requestAnimationFrame(() => $('#sec-' + args.sec)?.scrollIntoView({ block: 'start' })); },
+  open(name, args = {}) { this.cur = name; this.args = args; this._enter = true; $('#page').hidden = false; this.render(true); if (args.sec) requestAnimationFrame(() => $('#sec-' + args.sec)?.scrollIntoView({ block: 'start' })); },
   close() { this.cur = null; $('#page').hidden = true; $('#page').innerHTML = ''; App.changed(); },
   render(reset) {
     const root = $('#page'), { title, body, bare, foot } = PAGES[this.cur](this.args);
     const sc = reset ? 0 : $('.page-body', root)?.scrollTop || 0;
+    // L'entrée en fondu ne marque que le contenu de cette ouverture : un rafraîchissement ne la rejoue pas
+    const enter = this._enter; this._enter = false;
     root.innerHTML = `${bare ? '' : `<header class="page-head"><button class="icon-btn" data-act="page-close" aria-label="Retour">${ico('chev-l')}</button><h2>${esc(title)}</h2></header>`}<div class="page-body${bare ? ' bare' : ''}">${body}</div>${foot ? `<footer class="page-foot">${foot}</footer>` : ''}`;
-    $('.page-body', root).scrollTop = sc;
+    const pb = $('.page-body', root);
+    if (enter) pb.classList.add('p-enter');
+    pb.scrollTop = sc;
   },
   refresh() {
     if (!this.cur) return;
@@ -1490,7 +1506,7 @@ const Page = {
     this.render(false);
     if (pos != null) { const n = $('#pz-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
   },
-  set(patch) { Object.assign(this.args, patch); this.render(false); },
+  set(patch) { Object.assign(this.args, patch); if ('step' in patch) this._enter = true; this.render(false); },
 };
 const PAGES = {};
 
@@ -1503,6 +1519,7 @@ PAGES.settings = (args) => {
     body: `<div class="stackv">
     <section class="card"><div class="card-h"><h2>Sur ce téléphone</h2><span class="role-pill">${admin ? ico('gear', 'sm') + ' Responsable' : ico('door', 'sm') + ' Distributeur'}</span></div>
       ${meBlock()}
+      <button class="link" data-act="page" data-v="welcome" data-step="intro" style="margin-top:14px">Revoir l’écran de démarrage</button>
       ${admin ? '<button class="link" data-act="leave-admin" style="margin-top:14px">Quitter l’accès responsable</button>'
               : `<form class="street-tools" style="margin-top:14px" data-form="admin-code"><input class="input" name="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="Code d’accès responsable" aria-label="Code d’accès responsable" required><button class="btn ghost" type="submit">Entrer</button></form>`}
     </section>
@@ -1604,7 +1621,7 @@ function syncSection() {
       ${/^https:\/\/docs\.google\.com\//.test(Sync.sheet) ? `<a class="btn ghost" href="${esc(Sync.sheet)}" target="_blank" rel="noopener">${ico('grid')} Ouvrir la feuille Google</a>` : ''}
       <div class="set-row" style="border:0;padding-bottom:0"><div class="t"><b>${Sync.pending ? `${Sync.pending} modification${Sync.pending > 1 ? 's' : ''} en attente d'envoi` : 'Tout est envoyé'}</b><small>${Sync.lastOk ? 'Dernière synchro à ' + hhmm(Sync.lastOk) : 'Pas encore synchronisé'}${Sync.err ? ' · ' + esc(Sync.err) : ''}</small></div></div></div>`;
   }
-  h += `<details class="more" style="margin-top:12px"><summary>Rejoindre une équipe existante</summary><div><form data-form="join" style="display:grid;gap:10px"><input class="input" name="url" placeholder="Adresse de la feuille (…/exec)" value="${esc(Sync.url())}" autocomplete="off" aria-label="Adresse du script Google"><input class="input" name="code" placeholder="SEP-XXXX-XXXX" autocomplete="off" autocapitalize="characters" aria-label="Code d'équipe"><button class="btn" type="submit">Rejoindre</button></form><p class="muted" style="margin:0;font-size:13px">Plus simple : scannez le QR code du chef d'équipe.</p></div></details>`;
+  h += `<details class="more" style="margin-top:12px" ${!code ? 'open' : ''}><summary>Rejoindre une équipe existante</summary><div>${!code ? '<p class="muted" style="margin:0 0 10px;font-size:13px">Le code de l’équipe est dans la feuille Google, onglet <b>Réglages</b>, cellule <b>B2</b>.</p>' : ''}<form data-form="join" style="display:grid;gap:10px"><input class="input" name="url" placeholder="Adresse de la feuille (…/exec)" value="${esc(Sync.url())}" autocomplete="off" aria-label="Adresse du script Google"><input class="input" name="code" placeholder="SEP-XXXX-XXXX" autocomplete="off" autocapitalize="characters" aria-label="Code d'équipe"><button class="btn" type="submit">Rejoindre</button></form><p class="muted" style="margin:0;font-size:13px">Plus simple : scannez le QR code du chef d'équipe.</p></div></details>`;
   if (configured) h += `<details class="more" style="margin-top:6px"><summary>Changer de feuille</summary><div><form class="street-tools" data-form="sheet-url"><input class="input" name="url" value="${esc(Sync.url())}" autocomplete="off" aria-label="Adresse du script Google"><button class="btn ghost" type="submit">Enregistrer</button></form></div></details>`;
   return h;
 }
@@ -2401,6 +2418,7 @@ const A = {
   page: (el) => { Sheet.close(); Page.open(el.dataset.v, { sec: el.dataset.sec, step: el.dataset.step }); },
   'page-close': () => { if (Page.cur === 'zone') ZE = null; Page.close(); },
   'sheet-close': () => Sheet.close(),
+  reload: () => location.reload(),
   history: () => Page.open('history', {}),
   'me-sheet': () => openMeSheet(),
   'fix-later': () => { LS.set(K.fixLater, Date.now()); App.changed(); },
@@ -2721,6 +2739,11 @@ function migrate() {
   Object.assign(Sync, { queue: {}, code: '', since: 0, sheet: '' });
   return v !== 0;
 }
+/** Efface l'écran de lancement dès que l'app est prête, sans clignotement. */
+function hideSplash() {
+  const el = document.getElementById('splash'); if (!el) return;
+  setTimeout(() => { el.classList.add('gone'); setTimeout(() => el.remove(), 460); }, Math.max(0, 260 - performance.now()));
+}
 function boot() {
   applyTheme();
   OldIcon.check();
@@ -2750,5 +2773,18 @@ function boot() {
   window.addEventListener('resize', () => { if (MapView.map && UI.view === 'map') { MapView.map.invalidateSize(); MapView.size(); MapView.draw(); } });
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { applyTheme(); MapView.restyle(); });
   setInterval(() => { if (isoDay() !== App.day) { App.day = isoDay(); Store.rev++; App.changed(); } }, 60000);
+  document.addEventListener('scroll', (e) => {
+    const t = e.target;
+    if (t instanceof Element && t.classList.contains('view') && !t.hidden) setScrollShadow(t.scrollTop > 4);
+  }, { capture: true, passive: true });
+  document.addEventListener('touchstart', () => {}, { passive: true }); // iOS : sans cela, l'effet d'appui ne se déclenche pas
+  hideSplash();
 }
-boot();
+/** Dernier filet : si le démarrage échoue, l'écran de lancement s'efface et l'erreur est dite. */
+function safeBoot() {
+  try { boot(); } catch (e) {
+    hideSplash();
+    document.body.insertAdjacentHTML('beforeend', `<div class="boot-fail"><b>L’application n’a pas démarré</b><p>${esc(String((e && e.message) || e))}</p><button class="btn" data-act="reload">Réessayer</button></div>`);
+  }
+}
+safeBoot();

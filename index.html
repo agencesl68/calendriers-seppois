@@ -17,8 +17,31 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Big+Shoulders+Display:wght@600;700;800;900&display=swap">
 <link rel="stylesheet" href="vendor/leaflet.css">
 <link rel="stylesheet" href="styles.css">
+<style>
+/* Écran de lancement : affiché avant tout le reste, puis effacé par l'app */
+#splash{position:fixed;inset:0;z-index:2000;display:grid;place-content:center;justify-items:center;gap:16px;padding:24px;background:#15171A;transition:opacity .42s ease,transform .42s ease}
+#splash .sp-crest{width:116px;height:116px;border-radius:28px;background:#fff;padding:7px;box-shadow:0 20px 44px rgb(0 0 0/.5);animation:spIn .72s cubic-bezier(.2,.9,.25,1) both}
+#splash .sp-crest img{width:100%;height:100%;object-fit:cover;border-radius:22px;display:block}
+#splash b{margin:4px 0 0;font:900 clamp(32px,10vw,42px)/.92 'Big Shoulders Display','Arial Narrow',sans-serif;text-transform:uppercase;letter-spacing:.015em;text-align:center;color:#F2F3F5;animation:spUp .62s .1s cubic-bezier(.2,.9,.25,1) both}
+#splash b em{font-style:normal;color:#E8364F}
+#splash small{font:700 10.5px/1.4 'Barlow',system-ui,sans-serif;letter-spacing:.17em;text-transform:uppercase;text-align:center;color:#9EA5AF;animation:spUp .62s .18s cubic-bezier(.2,.9,.25,1) both}
+#splash .sp-bar{width:132px;height:4px;border-radius:99px;overflow:hidden;background:rgb(255 255 255/.13);animation:spUp .62s .26s cubic-bezier(.2,.9,.25,1) both}
+#splash .sp-bar i{display:block;height:100%;width:38%;border-radius:99px;background:linear-gradient(90deg,#F5CF0A,#C8102E);animation:spBar 1.15s .3s cubic-bezier(.5,0,.5,1) infinite}
+#splash.gone{opacity:0;transform:scale(1.035);pointer-events:none}
+@keyframes spIn{from{opacity:0;transform:translateY(12px) scale(.84)}}
+@keyframes spUp{from{opacity:0;transform:translateY(14px)}}
+@keyframes spBar{0%{transform:translateX(-115%)}100%{transform:translateX(270%)}}
+@media (prefers-reduced-motion:reduce){#splash *{animation:none!important}#splash{transition:none}}
+</style>
 </head>
 <body>
+<div id="splash" aria-hidden="true">
+  <div class="sp-crest"><img src="icons/logo.jpg" alt="" width="116" height="116"></div>
+  <b>Tournée des <em>calendriers</em></b>
+  <small>Amicale des Sapeurs-Pompiers<br>Seppois-le-Bas · depuis 1926</small>
+  <div class="sp-bar"><i></i></div>
+</div>
+<script>setTimeout(function(){var s=document.getElementById('splash');if(s&&s.parentNode)s.parentNode.removeChild(s);},2500);</script>
 <div id="app">
   <header class="top">
     <button class="crest" data-act="go" data-v="home" aria-label="Accueil"><img src="icons/logo.jpg" alt="Blason de l'Amicale des Sapeurs-Pompiers de Seppois-le-Bas" width="44" height="44"></button>
