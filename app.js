@@ -1957,7 +1957,8 @@ const MapView = {
     cv.addEventListener('pointerdown', (e) => this.lassoDown(e));
     cv.addEventListener('pointermove', (e) => this.lassoMove(e));
     cv.addEventListener('pointerup', (e) => this.lassoUp(e));
-    cv.addEventListener('pointercancel', () => { if (this.lasso) { this.lasso.path = null; this.draw(); } });
+    cv.addEventListener('pointercancel', () => { if (this.lasso) { this.lasso.path = null; this._pan = null; this.draw(); } });
+    cv.addEventListener('contextmenu', (e) => { if (this.lasso) e.preventDefault(); }); // le clic droit sert à déplacer la carte
     this.size(); this.styleRoads(); this.refresh();
     requestAnimationFrame(() => { map.invalidateSize(); this.size(); this.fit(false); });
     document.fonts?.ready?.then(() => this.draw());
@@ -2128,9 +2129,21 @@ const MapView = {
     else ZE = null;
   },
   lassoPt(e) { const r = this.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; },
-  lassoDown(e) { if (!this.lasso || this.lasso.mode === 'pan') return; this.canvas.setPointerCapture?.(e.pointerId); this.lasso.path = [this.lassoPt(e)]; },
-  lassoMove(e) { const L0 = this.lasso; if (!L0?.path) return; const p = this.lassoPt(e), q = L0.path[L0.path.length - 1]; if (Math.hypot(p.x - q.x, p.y - q.y) > 3) { L0.path.push(p); this.draw(); } },
+  lassoDown(e) {
+    if (!this.lasso) return;
+    // Clic droit (ou molette) : on déplace la carte sans quitter la sélection
+    if (e.button === 2 || e.button === 1) { this._pan = { x: e.clientX, y: e.clientY }; this.canvas.setPointerCapture?.(e.pointerId); e.preventDefault(); return; }
+    if (this.lasso.mode === 'pan') return;
+    this.canvas.setPointerCapture?.(e.pointerId); this.lasso.path = [this.lassoPt(e)];
+  },
+  lassoMove(e) {
+    if (this._pan) { this.map.panBy([this._pan.x - e.clientX, this._pan.y - e.clientY], { animate: false }); this._pan = { x: e.clientX, y: e.clientY }; return; }
+    const L0 = this.lasso; if (!L0?.path) return;
+    const p = this.lassoPt(e), q = L0.path[L0.path.length - 1];
+    if (Math.hypot(p.x - q.x, p.y - q.y) > 3) { L0.path.push(p); this.draw(); }
+  },
   lassoUp(e) {
+    if (this._pan) { this._pan = null; this.size(); this.draw(); return; }
     const L0 = this.lasso; if (!L0?.path) return;
     const path = L0.path; L0.path = null;
     let len = 0; for (let i = 1; i < path.length; i++) len += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
@@ -2154,8 +2167,8 @@ const MapView = {
     bar.hidden = false;
     const g = this.lasso.grain !== 'house';
     const hint = m === 'pan' ? 'Déplacez la carte, puis reprenez.'
-      : g ? `Touchez une rue : elle est ${m === 'add' ? 'ajoutée' : 'retirée'} en entier. Entourez pour choisir des maisons.`
-      : `Touchez une maison pour l’${m === 'add' ? 'ajouter' : 'enlever'}, ou entourez-en plusieurs.`;
+      : g ? `Clic gauche sur une rue : elle est ${m === 'add' ? 'ajoutée' : 'retirée'} en entier. Clic droit maintenu : déplacer la carte.`
+      : `Clic gauche sur une maison pour l’${m === 'add' ? 'ajouter' : 'enlever'}, ou entourez-en plusieurs. Clic droit maintenu : déplacer la carte.`;
     bar.innerHTML = `<p><span class="zdot" style="--c:${ZE.color}"></span> <b>${esc(ZE.name)}</b> · ${n} adresse${n > 1 ? 's' : ''}<br><small>${hint} Cerclées de rouge : sans secteur.</small></p>
       <div class="seg lasso-seg">${[['street', 'Rue entière'], ['house', 'Maison par maison']].map(([v, l]) => `<button data-act="lasso-grain" data-v="${v}" aria-pressed="${(this.lasso.grain !== 'house') === (v === 'street')}">${l}</button>`).join('')}</div>
       <div class="seg lasso-seg">${[['add', 'Ajouter'], ['remove', 'Retirer'], ['pan', 'Déplacer']].map(([v, l]) => `<button data-act="lasso-mode" data-v="${v}" aria-pressed="${m === v}">${l}</button>`).join('')}</div>
