@@ -1748,7 +1748,7 @@ PAGES.prep = () => {
     </div>
   </aside>`;
   const g = z ? S.byZone[z.id] || { total: 0, visited: 0 } : null;
-  const main = !z ? `<div class="prep-main"><section class="card"><div class="empty"><b>Créez le premier secteur</b><span>Donnez-lui un nom, par exemple « Mooslargue nord », puis cochez ses rues. L’app lui donne un code à 4 chiffres : c’est ce code que son équipe saisira.</span><button class="btn" data-act="pz-new">${ico('plus')} Nouveau secteur</button></div></section>
+  const main = !z ? `<div class="prep-main"><section class="card"><div class="empty"><b>Créez le premier secteur</b><span>Donnez-lui un nom, par exemple « Mooslargue nord », puis choisissez ses rues : en les cochant dans la liste, ou en les touchant sur la carte. L’app lui donne un code à 4 chiffres : c’est ce code que son équipe saisira.</span><button class="btn" data-act="pz-new">${ico('plus')} Nouveau secteur</button></div></section>
     <section class="card"><div class="card-h"><h2>Ou partir d’un découpage tout fait</h2><span class="muted">à ajuster ensuite</span></div>
       <div class="grid2"><button class="btn ghost" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button><button class="btn ghost" data-act="auto-go">${UI.autoN || 6} secteurs équilibrés</button></div>
     </section></div>`
@@ -1776,7 +1776,10 @@ PAGES.prep = () => {
       ${members().length ? `<div class="chips wrap">${memberChips('pz-member', z.members || [])}</div>` : '<p class="muted" style="margin:0 0 12px">Pas encore de prénoms. Chaque équipe peut aussi se nommer elle-même sur son téléphone.</p>'}
       <details class="more" style="margin-top:14px"><summary>Ajouter des prénoms</summary><div>${addMemberForm()}<p class="muted" style="margin:8px 0 0;font-size:13px">Un prénom par ligne.</p></div></details>
     </section>
-    <div class="lbl">Cochez les rues de ce secteur · ouvrez une rue pour n’en prendre qu’un côté ou quelques maisons</div>
+    <div class="pz-pick">
+      <div class="lbl">Cochez les rues de ce secteur · ouvrez une rue pour n’en prendre qu’un côté ou quelques maisons</div>
+      <button class="btn ghost sm" data-act="pz-map">${ico('map')} Choisir sur la carte</button>
+    </div>
     ${comChips('pz-com', PZ.com, counts)}
     <div class="input-ico">${ico('search')}<input id="pz-q" class="input" type="search" placeholder="Chercher une rue" value="${esc(PZ.q)}" autocomplete="off" aria-label="Chercher une rue"></div>
     <div class="zs-list" id="pz-list">${prepRows()}</div>
@@ -2093,7 +2096,14 @@ const MapView = {
   },
   endLasso(apply) {
     this.lasso = null; this.selStreet = null; this.setLassoInput(); this.renderLassoBar(); $('#map-legend').hidden = false; this.draw();
-    if (apply && ZE) Page.open('zone'); else ZE = null;
+    if (apply && ZE?.toPrep) {
+      const z = ZE;
+      saveZone({ id: z.id, name: z.name, color: z.color, members: z.members, addrs: [...z.addrs], order: z.order });
+      PZ.zid = z.id; ZE = null;
+      Page.open('prep');
+      toast(`${z.name} · ${z.addrs.size} adresse${z.addrs.size > 1 ? 's' : ''}.`);
+    } else if (apply && ZE) Page.open('zone');
+    else ZE = null;
   },
   lassoPt(e) { const r = this.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; },
   lassoDown(e) { if (!this.lasso || this.lasso.mode === 'pan') return; this.canvas.setPointerCapture?.(e.pointerId); this.lasso.path = [this.lassoPt(e)]; },
@@ -2443,7 +2453,7 @@ const A = {
   'map-fit': () => MapView.fit(true),
   'draw-start': () => { ZE = newZE(); MapView.startLasso(); },
   'lasso-mode': (el) => { MapView.lasso.mode = el.dataset.v; MapView.setLassoInput(); MapView.renderLassoBar(); },
-  'lasso-cancel': () => MapView.endLasso(!!(ZE && (ZE.id || ZE.fromPage))),
+  'lasso-cancel': () => { if (ZE?.toPrep) { ZE = null; MapView.endLasso(false); Page.open('prep'); return; } MapView.endLasso(!!(ZE && (ZE.id || ZE.fromPage))); },
   'lasso-done': () => MapView.endLasso(true),
   'street-houses': (el) => { Sheet.close(); UI.mapMode = 'streets'; UI.street = el.dataset.v; saveUI(); renderMapView(); $('#streets-host').scrollTop = 0; },
   'street-zoom': (el) => { Sheet.close(); MapView.fitTo(streetOf(el.dataset.v)?.addrs || [], true, 18.5); },
@@ -2527,6 +2537,11 @@ const A = {
     requestAnimationFrame(() => $('#pz-name')?.select());
   },
   'pz-color': (el) => pzPut({ color: el.dataset.v }),
+  'pz-map': () => {
+    const z = pzZone(); if (!z || !Role.admin) return;
+    ZE = { ...newZE(), id: z.id, name: z.name, color: z.color, members: [...(z.members || [])], addrs: new Set(z.addrs || []), order: z.order ?? 0, toPrep: true };
+    MapView.startLasso();
+  },
   'pz-code': () => { const z = pzZone(); if (z) { const c = newZoneCode(); pzPut({ code: c }); toast(`Code du secteur ${z.name} : ${c}`); } },
   'pz-member': (el) => { const z = pzZone(); if (!z) return; const v = el.dataset.v, cur = z.members || []; pzPut({ members: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] }); },
   'pz-street': (el) => {

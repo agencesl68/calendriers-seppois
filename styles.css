@@ -949,3 +949,5 @@ body.scrolled .top { box-shadow: 0 6px 22px rgb(0 0 0 / .3); }
 .boot-fail { position: fixed; inset: auto 16px 16px; z-index: 2100; display: grid; gap: 10px; justify-items: start; padding: 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--danger); box-shadow: var(--shadow); }
 .boot-fail b { font: 800 18px var(--f-display); text-transform: uppercase; }
 .boot-fail p { margin: 0; font-size: 13.5px; color: var(--ink-2); word-break: break-word; }
+.pz-pick { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pz-pick .lbl { flex: 1; min-width: 180px; }
