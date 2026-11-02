@@ -19,7 +19,7 @@ Un distributeur scanne le QR code du billet, saisit le **code à 4 chiffres de s
 Tout se prépare à l'avance, tranquillement, sur un ordinateur : ouvrez le lien de l'app dans le navigateur, entrez le code d'accès responsable, puis **Réglages › Secteurs › Préparer les secteurs** (ou l'onglet **Répartition**).
 
 1. **Nouveau secteur**, puis donnez-lui son nom : « Mooslargue nord », « Mooslargue sud »…
-2. **Choisissez ses rues** : cochez-les dans la liste, ou touchez **Choisir sur la carte** pour les prendre directement sur le plan (une rue entière d'un clic, ou plusieurs maisons en les entourant), puis **Terminer**. Filtrez par commune, cherchez une rue, ou ouvrez une rue pour ne prendre qu'un **côté** (pair ou impair) ou quelques maisons. Une maison n'appartient qu'à un seul secteur : la cocher ici la retire automatiquement de l'autre.
+2. **Choisissez ses rues** : un clic sur une rue dans la liste la prend **en entier** (le **+** à droite ouvre la rue pour choisir un côté ou quelques maisons). Ou touchez **Choisir sur la carte** : un clic sur une rue la prend entière, le bouton **Maison par maison** sert aux cas particuliers, et on peut entourer des maisons au doigt. **Terminer** revient au secteur. Filtrez par commune, cherchez une rue, ou ouvrez une rue pour ne prendre qu'un **côté** (pair ou impair) ou quelques maisons. Une maison n'appartient qu'à un seul secteur : la cocher ici la retire automatiquement de l'autre.
 3. Facultatif : la **couleur** sur la carte et les **prénoms** de l'équipe.
 4. L'app donne à chaque secteur un **code à 4 chiffres**. Chaque geste est enregistré tout de suite : il n'y a rien à valider.
 5. **Codes à distribuer** : une page avec **un billet par secteur** (code, QR code, liste des rues). Imprimez-la, découpez, et donnez à chaque équipe le billet de son secteur.
@@ -49,6 +49,7 @@ Ce code sépare les deux interfaces ; ce n'est pas une protection forte (un code
   - le compteur **« adresses sans équipe »** et la page pour les ranger rue par rue garantissent que tout est couvert ;
   - **Partager** copie la répartition en texte, prête à coller dans le groupe de l'amicale.
 - **Un code à 4 chiffres par secteur** : l'équipe le saisit une fois et ne voit plus que ses rues. Billets à imprimer (code + QR code + liste des rues) dans **Codes à distribuer**.
+- **Liste des pompiers** : ajout par copier-coller (un prénom par ligne), retrait d'un seul geste avec annulation possible ; les passages déjà faits restent dans l'historique.
 - **Équipes de 2 ou 3** : chaque secteur est confié à une équipe ; chacun voit « Mes rues » et ce qu'il y reste à faire.
 - **Statut par foyer** : à faire, calendrier donné, absent, à repasser, refus.
 - **Appartements** : une adresse peut contenir plusieurs logements, chacun avec son statut et ses repasses, et un repère facultatif (ex. « 1er étage gauche »).

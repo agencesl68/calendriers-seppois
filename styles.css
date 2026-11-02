@@ -951,3 +951,13 @@ body.scrolled .top { box-shadow: 0 6px 22px rgb(0 0 0 / .3); }
 .boot-fail p { margin: 0; font-size: 13.5px; color: var(--ink-2); word-break: break-word; }
 .pz-pick { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .pz-pick .lbl { flex: 1; min-width: 180px; }
+.mem-list { display: grid; gap: 0; }
+.mem-row { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); }
+.mem-row:last-child { border-bottom: 0; }
+.mem-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 9px 2px; border: 0; background: none; color: inherit; text-align: left; }
+.mem-main .t { min-width: 0; display: grid; gap: 1px; }
+.mem-main .t b { font-weight: 700; }
+.mem-main .t small { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.mem-row .icon-btn { color: var(--muted); flex: none; }
+.mem-row .icon-btn:active { color: var(--danger); }
+.zs-open { width: 48px; flex: none; border: 0; border-left: 1px solid var(--line); background: none; color: var(--muted); display: grid; place-items: center; }

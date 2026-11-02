@@ -1286,7 +1286,10 @@ function renderAdmin() {
     </section>` : ''}
     <section class="card">
       <div class="card-h"><h2>Les pompiers</h2><span class="muted">${ms.length}</span></div>
-      ${ms.length ? `<div class="chips wrap">${ms.map((m) => { const z = zs.find((x) => (x.members || []).includes(m.id)); return `<button class="chip mchip" data-act="member" data-v="${m.id}">${avatar(m.id, 'sm')} ${esc(m.name)}${z ? `<small>${esc(z.name)}</small>` : ''}</button>`; }).join('')}</div>` : '<div class="empty"><b>Aucun pompier</b>Ajoutez ceux qui participent à la tournée.</div>'}
+      ${ms.length ? `<div class="mem-list">${ms.map((m) => { const z = zs.find((x) => (x.members || []).includes(m.id)), d = stats().byMember[m.id]?.doors || 0; return `<div class="mem-row">
+        <button class="mem-main" data-act="member" data-v="${m.id}">${avatar(m.id, 'sm')}<span class="t"><b>${esc(m.name)}</b><small>${z ? esc(z.name) : 'sans secteur'}${d ? ` · ${d} foyer${d > 1 ? 's' : ''}` : ''}</small></span></button>
+        <button class="icon-btn" data-act="mem-remove" data-id="${m.id}" aria-label="Retirer ${esc(m.name)} de la liste" title="Retirer de la liste">${ico('trash')}</button>
+      </div>`; }).join('')}</div>` : '<div class="empty"><b>Aucun pompier</b>Ajoutez ceux qui participent à la tournée.</div>'}
       ${unassignedMembers.length && zs.length ? `<p class="muted" style="margin:12px 0 0;font-size:13px">Sans secteur : ${esc(unassignedMembers.map((m) => m.name).join(', '))}.</p>` : ''}
       <div style="margin-top:14px">${addMemberForm()}</div>
       <p class="muted" style="margin:10px 0 0;font-size:13px">Collez plusieurs prénoms d’un coup, un par ligne.</p>
@@ -1700,7 +1703,8 @@ function streetPickRow(st, { sel, zi, color, zid, open, p, showCom }) {
   const isOpen = open.has(st.sk);
   return `<div class="zs-row" data-state="${state}">
     <button class="zs-check" data-act="${p}-street" data-v="${esc(st.sk)}" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${state === 'all' ? 'Retirer' : 'Ajouter'} toute la rue ${esc(st.name)}" style="--c:${color}">${state === 'all' ? ico('check', 'sm') : state === 'some' ? ico('minus', 'sm') : ''}</button>
-    <button class="zs-name" data-act="${p}-open" data-v="${esc(st.sk)}" aria-expanded="${isOpen}"><span><b>${esc(st.name)}</b><small>${showCom ? esc(st.com) + ' · ' : ''}${inZ}/${tot} adresses${Object.entries(others).map(([o, n]) => ` · <span class="zdot" style="--c:${Store.s.zones[o]?.color}"></span>${n} dans ${esc(Store.s.zones[o]?.name || '?')}`).join('')}${free && !inZ ? ` · <b class="free">${free} sans secteur</b>` : ''}</small></span>${ico(isOpen ? 'minus' : 'plus', 'sm')}</button>
+    <button class="zs-name" data-act="${p}-street" data-v="${esc(st.sk)}"><span><b>${esc(st.name)}</b><small>${showCom ? esc(st.com) + ' · ' : ''}${inZ}/${tot} adresses${Object.entries(others).map(([o, n]) => ` · <span class="zdot" style="--c:${Store.s.zones[o]?.color}"></span>${n} dans ${esc(Store.s.zones[o]?.name || '?')}`).join('')}${free && !inZ ? ` · <b class="free">${free} sans secteur</b>` : ''}</small></span></button>
+    <button class="zs-open" data-act="${p}-open" data-v="${esc(st.sk)}" aria-expanded="${isOpen}" aria-label="${isOpen ? 'Fermer' : 'Ouvrir'} les maisons de ${esc(st.name)}" title="Choisir maison par maison">${ico(isOpen ? 'minus' : 'plus', 'sm')}</button>
   </div>
   ${isOpen ? `<div class="zs-doors"><div class="chips wrap">${[['all', 'Toute la rue'], ['odd', 'Côté impair'], ['even', 'Côté pair'], ['none', 'Aucune']].map(([m, l]) => `<button class="chip" data-act="${p}-quick" data-v="${esc(st.sk)}" data-m="${m}">${l}</button>`).join('')}</div>
     <div class="doors">${st.addrs.map((a) => { const w = sel.has(a.id) ? 'on' : zi.get(a.id) && zi.get(a.id) !== zid ? 'other' : 'free'; const oc = w === 'other' ? Store.s.zones[zi.get(a.id)]?.color : color; const nU = unitsOf(a.id).length; return `<button class="zt ${w}" style="--c:${oc}" data-act="${p}-addr" data-id="${a.id}" aria-pressed="${w === 'on'}" aria-label="${esc(a.num)} ${esc(st.name)}">${esc(a.num)}${nU > 1 ? `<small>${nU} logts</small>` : ''}</button>`; }).join('')}</div></div>` : ''}`;
@@ -2068,7 +2072,10 @@ const MapView = {
     return na && nd <= 46 ? na.sk : null;
   },
   click(p) {
-    const a = this.nearest(p), sk = a ? null : this.hitStreet(p);
+    const byStreet = this.lasso && this.lasso.grain !== 'house';
+    const a0 = this.nearest(p);
+    const a = byStreet ? null : a0;
+    const sk = a ? null : (byStreet && a0 ? a0.sk : this.hitStreet(p));
     if (this.lasso) {
       if (a) { ZE.addrs.has(a.id) ? ZE.addrs.delete(a.id) : ZE.addrs.add(a.id); this.selStreet = null; }
       else if (sk) {
@@ -2092,7 +2099,7 @@ const MapView = {
     go('map');
     this.show();
     if (!this.map || !ZE) return;
-    this.lasso = { mode: 'add', path: null };
+    this.lasso = { mode: 'add', grain: 'street', path: null };
     this.setLassoInput();
     $('#map-legend').hidden = true;
     this.renderLassoBar();
@@ -2145,8 +2152,12 @@ const MapView = {
     if (!this.lasso || !ZE) { bar.hidden = true; return; }
     const n = ZE.addrs.size, m = this.lasso.mode;
     bar.hidden = false;
-    const hint = m === 'pan' ? 'Déplacez la carte, puis reprenez.' : m === 'add' ? 'Touchez une rue pour l\'ajouter entière, ou entourez des maisons.' : 'Touchez une rue pour la retirer, ou entourez des maisons.';
+    const g = this.lasso.grain !== 'house';
+    const hint = m === 'pan' ? 'Déplacez la carte, puis reprenez.'
+      : g ? `Touchez une rue : elle est ${m === 'add' ? 'ajoutée' : 'retirée'} en entier. Entourez pour choisir des maisons.`
+      : `Touchez une maison pour l’${m === 'add' ? 'ajouter' : 'enlever'}, ou entourez-en plusieurs.`;
     bar.innerHTML = `<p><span class="zdot" style="--c:${ZE.color}"></span> <b>${esc(ZE.name)}</b> · ${n} adresse${n > 1 ? 's' : ''}<br><small>${hint} Cerclées de rouge : sans secteur.</small></p>
+      <div class="seg lasso-seg">${[['street', 'Rue entière'], ['house', 'Maison par maison']].map(([v, l]) => `<button data-act="lasso-grain" data-v="${v}" aria-pressed="${(this.lasso.grain !== 'house') === (v === 'street')}">${l}</button>`).join('')}</div>
       <div class="seg lasso-seg">${[['add', 'Ajouter'], ['remove', 'Retirer'], ['pan', 'Déplacer']].map(([v, l]) => `<button data-act="lasso-mode" data-v="${v}" aria-pressed="${m === v}">${l}</button>`).join('')}</div>
       <div class="chips"><button class="chip" data-act="lasso-cancel">Annuler</button><button class="chip go" data-act="lasso-done">${ico('check', 'sm')} Terminer</button></div>`;
     document.documentElement.style.setProperty('--lasso-h', bar.offsetHeight + 'px');
@@ -2484,6 +2495,7 @@ const A = {
   'map-fit': () => MapView.fit(true),
   'draw-start': () => { ZE = newZE(); MapView.startLasso(); },
   'lasso-mode': (el) => { MapView.lasso.mode = el.dataset.v; MapView.setLassoInput(); MapView.renderLassoBar(); },
+  'lasso-grain': (el) => { MapView.lasso.grain = el.dataset.v; MapView.renderLassoBar(); },
   'lasso-cancel': () => { if (ZE?.toPrep) { ZE = null; MapView.endLasso(false); Page.open('prep'); return; } MapView.endLasso(!!(ZE && (ZE.id || ZE.fromPage))); },
   'lasso-done': () => MapView.endLasso(true),
   'street-houses': (el) => { Sheet.close(); UI.mapMode = 'streets'; UI.street = el.dataset.v; saveUI(); renderMapView(); $('#streets-host').scrollTop = 0; },
@@ -2531,6 +2543,20 @@ const A = {
   'rp-quick': (el) => quickRp(el.dataset.id, el.dataset.v),
   member: (el) => { Sheet.close(); Page.open('member', { id: el.dataset.v }); },
   'mem-color': (el) => { const m = member(el.dataset.id); if (m) Store.put('member', m.id, { ...m, color: el.dataset.v }); },
+  'mem-remove': (el) => {
+    const m = member(el.dataset.id); if (!m || !Role.admin) return;
+    const inZones = zones().filter((z) => (z.members || []).includes(m.id)).map((z) => z.id);
+    const wasMine = Me.team().includes(m.id);
+    Store.put('member', m.id, { ...m, del: true });
+    for (const id of inZones) { const z = Store.s.zones[id]; if (z) Store.put('zone', id, { ...z, members: (z.members || []).filter((x) => x !== m.id) }); }
+    if (wasMine) Me.set(Me.team().filter((x) => x !== m.id));
+    toast(`${m.name} retiré de la liste. Ses passages restent dans l’historique.`, { ms: 6000, undo: () => {
+      Store.put('member', m.id, { ...m, del: false });
+      for (const id of inZones) { const z = Store.s.zones[id]; if (z) Store.put('zone', id, { ...z, members: [...new Set([...(z.members || []), m.id])] }); }
+      if (wasMine) Me.set([...Me.team(), m.id]);
+      toast(`${m.name} est de retour.`);
+    } });
+  },
   'mem-del-ask': () => Page.set({ confirm: true }),
   'mem-del-no': () => Page.set({ confirm: false }),
   'mem-del': (el) => { const m = member(el.dataset.id); if (!m) return; Store.put('member', m.id, { ...m, del: true }); for (const z of zones()) if ((z.members || []).includes(m.id)) Store.put('zone', z.id, { ...z, members: z.members.filter((x) => x !== m.id) }); Me.set(Me.team().filter((x) => x !== m.id)); Page.close(); toast(`${m.name} a été retiré de la liste.`); },
