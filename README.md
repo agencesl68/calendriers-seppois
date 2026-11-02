@@ -69,10 +69,13 @@ Dans **Réglages → Remettre à zéro**, trois niveaux :
 | | Ce que ça efface | Ce que ça garde | Qui |
 | --- | --- | --- | --- |
 | **Nouvelle campagne** | Tous les statuts, les repasses, l'historique | Les pompiers, les secteurs, la répartition | Responsable |
+| **Effacer les secteurs** | Les secteurs et leurs codes | Les pompiers, les adresses, tous les passages | Responsable |
 | **Tout effacer** | Tout, y compris pompiers et secteurs | Les 1 522 adresses du secteur | Responsable |
 | **Effacer ce téléphone** | Les données de ce téléphone, son secteur, et le détache de l'équipe | Ce que les autres téléphones ont | Tout le monde |
 
-Les deux premières valent **pour toute l'équipe** : tous les téléphones suivent à la synchro suivante. L'app propose une sauvegarde avant d'effacer, et « Tout effacer » demande de taper le mot EFFACER.
+Pour se déconnecter : **Réglages › Se déconnecter** — quitter l'accès responsable, ou détacher le téléphone de l'équipe (rien n'est effacé, on rejoint avec le code de l'équipe).
+
+Les trois premières valent **pour toute l'équipe** : tous les téléphones suivent à la synchro suivante. L'app propose une sauvegarde avant d'effacer, et « Tout effacer » demande de taper le mot EFFACER.
 
 **Chaque année**, avant de recommencer : *Nouvelle campagne*. Vous repartez de zéro en gardant vos équipes et votre découpage des rues.
 

@@ -1512,6 +1512,7 @@ const PAGES = {};
 
 PAGES.settings = (args) => {
   const set = Store.s.settings, theme = LS.get(K.theme, 'auto');
+  const wait = Sync.code && Sync.configured ? Sync.pending : 0, ws = wait > 1 ? 's' : '';
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent), standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const admin = Role.admin;
   return {
@@ -1520,9 +1521,13 @@ PAGES.settings = (args) => {
     <section class="card"><div class="card-h"><h2>Sur ce téléphone</h2><span class="role-pill">${admin ? ico('gear', 'sm') + ' Responsable' : ico('door', 'sm') + ' Distributeur'}</span></div>
       ${meBlock()}
       <button class="link" data-act="page" data-v="welcome" data-step="intro" style="margin-top:14px">Revoir l’écran de démarrage</button>
-      ${admin ? '<button class="link" data-act="leave-admin" style="margin-top:14px">Quitter l’accès responsable</button>'
-              : `<form class="street-tools" style="margin-top:14px" data-form="admin-code"><input class="input" name="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="Code d’accès responsable" aria-label="Code d’accès responsable" required><button class="btn ghost" type="submit">Entrer</button></form>`}
+      ${admin ? '' : `<form class="street-tools" style="margin-top:14px" data-form="admin-code"><input class="input" name="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="Code d’accès responsable" aria-label="Code d’accès responsable" required><button class="btn ghost" type="submit">Entrer</button></form>`}
     </section>
+    ${admin || Sync.code ? `<section class="card" id="sec-logout"><div class="card-h"><h2>Se déconnecter</h2></div>
+      ${admin ? `<div class="set-row"><div class="t"><b>Quitter l’accès responsable</b><small>Ce téléphone revient à l’affichage distributeur. Le code d’accès sera redemandé.</small></div><button class="btn sm ghost" data-act="leave-admin">${ico('door', 'sm')} Déconnexion</button></div>` : ''}
+      ${Sync.code ? (args.logout === 'team' ? `<div class="confirm"><p>${wait ? `<b>${wait} modification${ws} pas encore envoyée${ws}</b> ${wait > 1 ? 'seront perdues' : 'sera perdue'} : synchronisez d’abord. ` : ''}Détacher ce téléphone de l’équipe ? Les données restent ici, vous pourrez rejoindre de nouveau avec le code de l’équipe.</p><div class="grid2">${wait ? `<button class="btn" data-act="sync-now">${ico('repeat')} Synchroniser</button>` : '<button class="btn ghost" data-act="logout-step" data-v="">Annuler</button>'}<button class="btn red" data-act="leave-team">Se déconnecter</button></div></div>`
+        : `<div class="set-row"><div class="t"><b>Se déconnecter de l’équipe</b><small>Détache ce téléphone de la feuille et de son secteur. Rien n’est effacé${wait ? ` · ${wait} modification${ws} en attente d’envoi` : ''}.</small></div><button class="btn sm ghost" data-act="logout-step" data-v="team">${ico('link', 'sm')} Déconnexion</button></div>`) : ''}
+    </section>` : ''}
     ${admin ? `<section class="card" id="sec-campaign"><div class="card-h"><h2>Campagne</h2></div>
       <div class="field"><label for="set-name">Nom affiché</label><input id="set-name" class="input" data-set="name" value="${esc(set.name || '')}"></div>
       ${(window.CAL_CONFIG || {}).adminHash ? '<p class="muted" style="margin:12px 0 0;font-size:13.5px">Code d’accès responsable : le même pour tous les responsables, à ne donner qu’à eux. Pour le changer, voir README.md.</p>' : `<div class="field" style="margin-top:12px"><label for="set-code">Code responsable</label><input id="set-code" class="input" inputmode="numeric" data-set="code" value="${esc(set.code || '')}" placeholder="4 chiffres"><small class="muted">À donner seulement aux personnes qui répartissent les rues.</small></div>`}
@@ -1580,6 +1585,15 @@ PAGES.reset = (args) => {
       ${!admin ? '<div class="note-box">Réservé au responsable.</div>'
         : step === 'camp' ? `<div class="confirm"><p>Remettre les ${nPass} foyer${nPass > 1 ? 's' : ''} à « À faire » ? Sur tous les téléphones de l’équipe. C’est sans retour.</p><div class="grid2"><button class="btn ghost" data-act="reset-step" data-v="">Annuler</button><button class="btn red" data-act="reset-campaign">Oui, remettre à zéro</button></div></div>`
         : `<button class="btn block" data-act="reset-step" data-v="camp">${ico('repeat')} Démarrer une nouvelle campagne</button>`}
+    </section>
+
+    <section class="card danger-card">
+      <div class="card-h"><h2>Effacer les secteurs</h2><span class="muted">${admin ? 'toute l’équipe' : 'responsable'}</span></div>
+      <p class="muted" style="margin:0 0 12px">Supprime <b>les ${zones().length} secteur${zones().length > 1 ? 's' : ''} et leurs codes</b>, pour refaire la répartition de zéro. Les pompiers, les adresses et tous les passages sont conservés. Les équipes qui ont déjà saisi leur code devront saisir le nouveau.</p>
+      ${!admin ? '<div class="note-box">Réservé au responsable.</div>'
+        : !zones().length ? '<div class="note-box">Aucun secteur pour l’instant.</div>'
+        : step === 'zones' ? `<div class="confirm"><p>Supprimer les ${zones().length} secteurs ? Sur tous les téléphones de l’équipe. Les passages déjà notés restent.</p><div class="grid2"><button class="btn ghost" data-act="reset-step" data-v="">Annuler</button><button class="btn red" data-act="reset-zones">Oui, effacer les secteurs</button></div></div>`
+        : `<button class="btn block" data-act="reset-step" data-v="zones">${ico('trash')} Effacer les secteurs</button>`}
     </section>
 
     <section class="card danger-card">
@@ -1745,6 +1759,7 @@ PAGES.prep = () => {
       <button class="btn block" data-act="pz-new">${ico('plus')} Nouveau secteur</button>
       <button class="btn ghost block" data-act="page" data-v="codes">${ico('grid')} Codes à distribuer</button>
       ${miss ? `<button class="link" data-act="page" data-v="unassigned">${miss} adresse${miss > 1 ? 's' : ''} sans secteur</button>` : '<p class="muted" style="margin:0;font-size:12.5px">Toutes les adresses sont rangées dans un secteur.</p>'}
+      ${zs.length ? '<button class="link danger" data-act="page" data-v="reset" data-step="zones">Effacer tous les secteurs</button>' : ''}
     </div>
   </aside>`;
   const g = z ? S.byZone[z.id] || { total: 0, visited: 0 } : null;
@@ -2330,6 +2345,13 @@ function importJSON(file) {
   };
   r.readAsText(file);
 }
+/** Efface tous les secteurs et leurs codes. Les pompiers, les adresses et les passages restent. */
+function resetZones() {
+  const n = zones().length;
+  for (const z of zones()) Store.put('zone', z.id, { ...z, del: true });
+  PZ = { ...PZ, zid: '', del: false, open: new Set() };
+  return n;
+}
 /** Nouvelle campagne : tous les foyers repassent à « À faire », les équipes et la répartition restent. */
 function resetCampaign() {
   Store.put('settings', 'main', { ...Store.s.settings, reset: Date.now() });
@@ -2433,7 +2455,16 @@ const A = {
   'me-sheet': () => openMeSheet(),
   'fix-later': () => { LS.set(K.fixLater, Date.now()); App.changed(); },
   'me-toggle': (el) => Me.toggle(el.dataset.v),
-  'leave-admin': () => { Role.set('distrib'); go('home'); toast('Retour à l’accès distributeur.'); },
+  'leave-admin': () => { Role.set('distrib'); if (Page.cur) Page.refresh(); go('home'); toast('Déconnecté de l’accès responsable.'); },
+  'logout-step': (el) => Page.set({ logout: el.dataset.v }),
+  'leave-team': () => {
+    Sync.stop();
+    Sync.code = ''; LS.del(K.code); LS.del(K.made); LS.del(K.zone); LS.del(K.since); Sync.since = 0;
+    Sync.sheet = ''; LS.del(K.sheet); Sync.set('local');
+    Store.rev++; App.changed();
+    Page.set({ logout: '' });
+    toast('Ce téléphone est détaché de l’équipe. Les données sont toujours là.');
+  },
   'share-assign': async () => {
     const txt = shareText();
     if (navigator.share) { try { await navigator.share({ title: 'Répartition des calendriers', text: txt }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
@@ -2582,6 +2613,13 @@ const A = {
     resetCampaign(); prunePassages();
     Page.close(); go('home');
     toast('Nouvelle campagne : tous les foyers sont à « À faire ».');
+  },
+  'reset-zones': () => {
+    if (!Role.admin) return;
+    if (Store.demoOn) { toast('En mode démo, rien à effacer.'); return; }
+    const n = resetZones();
+    Page.close(); go('home');
+    toast(`${n} secteur${n > 1 ? 's' : ''} effacé${n > 1 ? 's' : ''}. Créez la nouvelle répartition, puis réimprimez les billets.`, { ms: 6000 });
   },
   'reset-phone': () => { wipePhone(); Page.close(); go('home'); maybeWelcome(); toast('Ce téléphone a été remis à neuf.'); },
   theme: (el) => { LS.set(K.theme, el.dataset.v); applyTheme(); MapView.restyle(); App.changed(); },
