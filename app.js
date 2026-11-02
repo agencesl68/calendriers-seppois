@@ -1948,10 +1948,18 @@ const MapView = {
     this.canvas = L.DomUtil.create('canvas', 'addr-canvas', map.getContainer());
     this.ctx = this.canvas.getContext('2d');
     this.col(); this.buildVector(); this.buildLabels(); this.fit(false);
-    map.on('move', () => this.draw());
+    map.on('dragstart', () => { if (this._pan) return; this._dragRef = map.containerPointToLatLng([0, 0]); this._panning = true; this.canvas.style.willChange = 'transform'; });
+    map.on('move', () => {
+      if (!this._dragRef) { this.draw(); return; }
+      const p = map.latLngToContainerPoint(this._dragRef); // une seule écriture de style par image, aucun redessin
+      this.canvas.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+    });
     map.on('zoomanim', () => (this.canvas.style.opacity = 0));
     map.on('zoomend', () => { this.styleRoads(); this.canvas.style.opacity = 1; this.draw(); });
-    map.on('moveend resize viewreset', () => { this.size(); this.draw(); });
+    map.on('moveend resize viewreset', () => {
+      if (this._dragRef) { this._dragRef = null; this._panning = false; this.canvas.style.transform = ''; this.canvas.style.willChange = ''; }
+      this.size(); this.draw();
+    });
     map.on('click', (e) => this.click(e.containerPoint));
     const cv = this.canvas;
     cv.addEventListener('pointerdown', (e) => this.lassoDown(e));
@@ -2112,10 +2120,12 @@ const MapView = {
     });
   },
   setLassoInput() {
-    const drawing = this.lasso && this.lasso.mode !== 'pan', m = this.map;
-    this.canvas.style.pointerEvents = drawing ? 'auto' : 'none';
-    this.canvas.style.touchAction = drawing ? 'none' : '';
-    for (const h of [m.dragging, m.touchZoom, m.doubleClickZoom, m.boxZoom]) drawing ? h.disable() : h.enable();
+    const on = !!this.lasso, m = this.map;
+    this.canvas.style.pointerEvents = on ? 'auto' : 'none';
+    this.canvas.style.touchAction = on ? 'none' : '';
+    // Le déplacement est fait à la main (clic gauche) pour rester fluide ; le pincement et le zoom restent à la carte
+    for (const h of [m.dragging, m.boxZoom]) on ? h.disable() : h.enable();
+    for (const h of [m.touchZoom, m.doubleClickZoom]) h.enable();
   },
   endLasso(apply) {
     this.lasso = null; this.selStreet = null; this.setLassoInput(); this.renderLassoBar(); $('#map-legend').hidden = false; this.draw();
@@ -2131,19 +2141,50 @@ const MapView = {
   lassoPt(e) { const r = this.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; },
   lassoDown(e) {
     if (!this.lasso) return;
-    // Clic droit (ou molette) : on déplace la carte sans quitter la sélection
-    if (e.button === 2 || e.button === 1) { this._pan = { x: e.clientX, y: e.clientY }; this.canvas.setPointerCapture?.(e.pointerId); e.preventDefault(); return; }
-    if (this.lasso.mode === 'pan') return;
-    this.canvas.setPointerCapture?.(e.pointerId); this.lasso.path = [this.lassoPt(e)];
+    if (this._pan || this.lasso.path) { this.cancelPan(); return; } // deuxième doigt : on laisse le pincement à la carte
+    this.canvas.setPointerCapture?.(e.pointerId);
+    if (e.button === 2) { this.lasso.path = [this.lassoPt(e)]; e.preventDefault(); return; } // clic droit : choisir ou entourer
+    this._pan = { id: e.pointerId, x: e.clientX, y: e.clientY, tx: 0, ty: 0, dx: 0, dy: 0, moved: 0, raf: 0, touch: e.pointerType !== 'mouse' };
+    this._panning = true; this.canvas.style.willChange = 'transform';
+    e.preventDefault();
   },
+  /** Déplacement fluide : une seule mise à jour par image, et la couche des maisons glisse sans être redessinée. */
   lassoMove(e) {
-    if (this._pan) { this.map.panBy([this._pan.x - e.clientX, this._pan.y - e.clientY], { animate: false }); this._pan = { x: e.clientX, y: e.clientY }; return; }
+    const P = this._pan;
+    if (P) {
+      if (e.pointerId !== P.id) return;
+      const dx = e.clientX - P.x, dy = e.clientY - P.y;
+      P.x = e.clientX; P.y = e.clientY;
+      P.tx += dx; P.ty += dy; P.dx += dx; P.dy += dy; P.moved += Math.abs(dx) + Math.abs(dy);
+      if (!P.raf) P.raf = requestAnimationFrame(() => {
+        P.raf = 0;
+        const ddx = P.dx, ddy = P.dy; P.dx = 0; P.dy = 0;
+        if (ddx || ddy) this.map.panBy([-ddx, -ddy], { animate: false });
+        this.canvas.style.transform = `translate3d(${P.tx}px, ${P.ty}px, 0)`;
+      });
+      return;
+    }
     const L0 = this.lasso; if (!L0?.path) return;
     const p = this.lassoPt(e), q = L0.path[L0.path.length - 1];
     if (Math.hypot(p.x - q.x, p.y - q.y) > 3) { L0.path.push(p); this.draw(); }
   },
+  cancelPan() {
+    const P = this._pan; if (!P) return null;
+    if (P.raf) cancelAnimationFrame(P.raf);
+    this._pan = null; this._panning = false;
+    this.canvas.style.transform = ''; this.canvas.style.willChange = '';
+    this.size(); this.draw();
+    return P;
+  },
   lassoUp(e) {
-    if (this._pan) { this._pan = null; this.size(); this.draw(); return; }
+    if (this._pan) {
+      const P = this.cancelPan();
+      if (P && P.moved < 6) {
+        if (P.touch) this.click(this.lassoPt(e)); // au doigt, un simple appui choisit
+        else if (!this._hintAt || Date.now() - this._hintAt > 8000) { this._hintAt = Date.now(); toast('Clic droit pour prendre une rue · clic gauche pour déplacer la carte.', { ms: 3200 }); }
+      }
+      return;
+    }
     const L0 = this.lasso; if (!L0?.path) return;
     const path = L0.path; L0.path = null;
     let len = 0; for (let i = 1; i < path.length; i++) len += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
@@ -2166,12 +2207,11 @@ const MapView = {
     const n = ZE.addrs.size, m = this.lasso.mode;
     bar.hidden = false;
     const g = this.lasso.grain !== 'house';
-    const hint = m === 'pan' ? 'Déplacez la carte, puis reprenez.'
-      : g ? `Clic gauche sur une rue : elle est ${m === 'add' ? 'ajoutée' : 'retirée'} en entier. Clic droit maintenu : déplacer la carte.`
-      : `Clic gauche sur une maison pour l’${m === 'add' ? 'ajouter' : 'enlever'}, ou entourez-en plusieurs. Clic droit maintenu : déplacer la carte.`;
+    const what = g ? 'une rue (entière)' : 'une maison';
+    const hint = `<b>Clic droit</b> sur ${what} pour l’${m === 'add' ? 'ajouter' : 'enlever'}, clic droit maintenu pour entourer plusieurs maisons. <b>Clic gauche</b> : déplacer la carte. Au doigt : appuyez pour choisir, glissez pour déplacer.`;
     bar.innerHTML = `<p><span class="zdot" style="--c:${ZE.color}"></span> <b>${esc(ZE.name)}</b> · ${n} adresse${n > 1 ? 's' : ''}<br><small>${hint} Cerclées de rouge : sans secteur.</small></p>
       <div class="seg lasso-seg">${[['street', 'Rue entière'], ['house', 'Maison par maison']].map(([v, l]) => `<button data-act="lasso-grain" data-v="${v}" aria-pressed="${(this.lasso.grain !== 'house') === (v === 'street')}">${l}</button>`).join('')}</div>
-      <div class="seg lasso-seg">${[['add', 'Ajouter'], ['remove', 'Retirer'], ['pan', 'Déplacer']].map(([v, l]) => `<button data-act="lasso-mode" data-v="${v}" aria-pressed="${m === v}">${l}</button>`).join('')}</div>
+      <div class="seg lasso-seg">${[['add', 'Ajouter'], ['remove', 'Retirer']].map(([v, l]) => `<button data-act="lasso-mode" data-v="${v}" aria-pressed="${m === v}">${l}</button>`).join('')}</div>
       <div class="chips"><button class="chip" data-act="lasso-cancel">Annuler</button><button class="chip go" data-act="lasso-done">${ico('check', 'sm')} Terminer</button></div>`;
     document.documentElement.style.setProperty('--lasso-h', bar.offsetHeight + 'px');
   },
@@ -2194,6 +2234,7 @@ const MapView = {
     bar.innerHTML = `<p>Itinéraire des repasses : ${this.route.length} adresses dans l'ordre, environ ${m < 1000 ? Math.round(m / 10) * 10 + ' m' : (m / 1000).toFixed(1).replace('.', ',') + ' km'}.</p><div class="chips"><button class="chip" data-act="route-clear">Effacer l'itinéraire</button></div>`;
   },
   draw() {
+    if (this._panning) return; // pendant le déplacement, la couche glisse telle quelle
     if (!this.map || !this.ctx || $('#v-map').hidden || UI.mapMode !== 'map') return;
     const map = this.map, ctx = this.ctx, W = this._w, H = this._h;
     ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0); ctx.clearRect(0, 0, W, H);
