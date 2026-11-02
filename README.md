@@ -7,12 +7,26 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour org
 | | **Responsable** | **Distributeur** |
 | --- | --- | --- |
 | Pour qui | Ceux qui répartissent les rues | Tous ceux qui font les portes |
-| Comment | Code d'accès responsable | Rien à saisir |
-| Ce qu'il fait | Voit toute la carte en direct, ajoute les prénoms, touche une rue puis les prénoms de ceux qui la font | Choisit son prénom, voit seulement ses rues (en rouge) et note à chaque porte « Calendrier donné » ou « À repasser » |
+| Comment | Code d'accès responsable | QR code, puis le code à 4 chiffres de son secteur |
+| Ce qu'il fait | Voit toute la carte en direct, prépare les secteurs, imprime les billets | Voit seulement les rues de son secteur (en rouge) et note à chaque porte « Calendrier donné » ou « À repasser » |
 
 À la première ouverture, le responsable touche **Je suis le responsable** et entre le code d'accès : son téléphone relie alors l'équipe à la feuille Google. L'app propose ensuite une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
 
-Un distributeur ouvre l'app, touche son prénom et celui des **1 à 3 personnes** qui tournent avec lui, et c'est tout. Chaque porte notée est automatiquement au nom de toute l'équipe. Pour passer responsable : **Réglages › Sur ce téléphone**, puis le code d'accès.
+Un distributeur scanne le QR code du billet, saisit le **code à 4 chiffres de son secteur**, et il a ses rues. Pour passer responsable : **Réglages › Sur ce téléphone**, puis le code d'accès.
+
+## Préparer les secteurs (sur ordinateur)
+
+Tout se prépare à l'avance, tranquillement, sur un ordinateur : ouvrez le lien de l'app dans le navigateur, entrez le code d'accès responsable, puis **Réglages › Secteurs › Préparer les secteurs** (ou l'onglet **Répartition**).
+
+1. **Nouveau secteur**, puis donnez-lui son nom : « Mooslargue nord », « Mooslargue sud »…
+2. **Cochez ses rues** dans la liste de droite. Filtrez par commune, cherchez une rue, ou ouvrez une rue pour ne prendre qu'un **côté** (pair ou impair) ou quelques maisons. Une maison n'appartient qu'à un seul secteur : la cocher ici la retire automatiquement de l'autre.
+3. Facultatif : la **couleur** sur la carte et les **prénoms** de l'équipe.
+4. L'app donne à chaque secteur un **code à 4 chiffres**. Chaque geste est enregistré tout de suite : il n'y a rien à valider.
+5. **Codes à distribuer** : une page avec **un billet par secteur** (code, QR code, liste des rues). Imprimez-la, découpez, et donnez à chaque équipe le billet de son secteur.
+
+Le jour de la tournée, l'équipe scanne le QR code de son billet avec l'appareil photo du téléphone : l'app s'ouvre déjà reliée à l'équipe **et** à son secteur. Si elle scanne le QR code général (Réglages › Équipe connectée), il lui suffit de saisir les 4 chiffres. Pour changer de secteur ensuite : **Réglages › Mon secteur**.
+
+Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mot de passe. Ce qui protège les données, c'est la feuille Google gardée privée et le code d'équipe donné aux seuls pompiers.
 
 ### Changer le code d'accès responsable
 
@@ -34,6 +48,7 @@ Ce code sépare les deux interfaces ; ce n'est pas une protection forte (un code
   - une maison n'appartient qu'à **un seul** secteur ;
   - le compteur **« adresses sans équipe »** et la page pour les ranger rue par rue garantissent que tout est couvert ;
   - **Partager** copie la répartition en texte, prête à coller dans le groupe de l'amicale.
+- **Un code à 4 chiffres par secteur** : l'équipe le saisit une fois et ne voit plus que ses rues. Billets à imprimer (code + QR code + liste des rues) dans **Codes à distribuer**.
 - **Équipes de 2 ou 3** : chaque secteur est confié à une équipe ; chacun voit « Mes rues » et ce qu'il y reste à faire.
 - **Statut par foyer** : à faire, calendrier donné, absent, à repasser, refus.
 - **Appartements** : une adresse peut contenir plusieurs logements, chacun avec son statut et ses repasses, et un repère facultatif (ex. « 1er étage gauche »).
@@ -55,7 +70,7 @@ Dans **Réglages → Remettre à zéro**, trois niveaux :
 | --- | --- | --- | --- |
 | **Nouvelle campagne** | Tous les statuts, les repasses, l'historique | Les pompiers, les secteurs, la répartition | Responsable |
 | **Tout effacer** | Tout, y compris pompiers et secteurs | Les 1 522 adresses du secteur | Responsable |
-| **Effacer ce téléphone** | Les données de ce téléphone, et le détache de l'équipe | Ce que les autres téléphones ont | Tout le monde |
+| **Effacer ce téléphone** | Les données de ce téléphone, son secteur, et le détache de l'équipe | Ce que les autres téléphones ont | Tout le monde |
 
 Les deux premières valent **pour toute l'équipe** : tous les téléphones suivent à la synchro suivante. L'app propose une sauvegarde avant d'effacer, et « Tout effacer » demande de taper le mot EFFACER.
 
@@ -91,7 +106,7 @@ Toutes les données sont réunies dans **une feuille Google Sheets de votre Driv
 
 Le menu **Calendriers** de la feuille permet aussi de les mettre à jour à la demande.
 
-Les téléphones se synchronisent toutes les 20 secondes quand l'app est ouverte. Sans réseau, les passages sont gardés et envoyés au retour du réseau. La feuille n'accepte que le code de votre équipe, et son adresse n'est connue que de vos téléphones.
+Les téléphones se synchronisent toutes les 20 secondes quand l'app est ouverte. Sans réseau, les passages sont gardés et envoyés au retour du réseau. La feuille n'accepte que le code de votre équipe. L'adresse du script, elle, est publique (dans `config.js`) : gardez donc la feuille en accès **Limité** (voir Vie privée) et le code d'équipe pour vous.
 
 ## 3. Installer l'app sur le téléphone
 

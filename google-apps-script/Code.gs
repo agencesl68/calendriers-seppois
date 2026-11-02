@@ -18,7 +18,7 @@ const STATUTS = { todo: 'À faire', done: 'Calendrier donné', absent: 'Absent',
 const CRENEAUX = { matin: 'Matin', midi: 'Midi', aprem: 'Après-midi', soir: 'Soir' };
 
 function doGet() {
-  return json_({ ok: true, app: 'tournee-calendriers', now: Date.now(), sheet: SpreadsheetApp.getActive().getUrl() });
+  return json_({ ok: true, app: 'tournee-calendriers', now: Date.now() }); // l'adresse de la feuille seulement avec le code d'équipe
 }
 
 function doPost(e) {

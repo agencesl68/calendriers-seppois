@@ -809,3 +809,64 @@ textarea.input[readonly] { font: 400 14px/1.5 ui-monospace, SFMono-Regular, Menl
 .acts.two { grid-template-columns: 1fr; }
 .acts.two .act.big { grid-column: auto; min-height: 84px; }
 @media (max-height: 700px) { .acts.two .act.big { min-height: 68px; } }
+
+/* ───────── Préparer les secteurs (confortable sur ordinateur) */
+.prep { display: grid; gap: 16px; align-items: start; }
+.prep-main { display: grid; gap: 16px; min-width: 0; }
+.prep-rail { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: grid; align-content: start; }
+.pr-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); font: 800 13px var(--f-body); text-transform: uppercase; letter-spacing: .08em; }
+.pr-list { display: grid; align-content: start; max-height: min(46vh, 420px); overflow-y: auto; }
+.pr-item { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; color: inherit; }
+.pr-item[aria-current="true"] { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--red); }
+.pr-t { min-width: 0; display: grid; gap: 1px; }
+.pr-t b { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-t small { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.pr-code { font: 800 17px/1 var(--f-display); letter-spacing: .06em; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.pr-foot { display: grid; gap: 10px; padding: 14px; justify-items: stretch; }
+.pz-top { display: grid; gap: 16px; }
+.pz-id { display: grid; gap: 14px; min-width: 0; }
+.pz-code { display: grid; gap: 8px; justify-items: stretch; align-content: start; border-top: 1px solid var(--line); padding-top: 14px; }
+.pz-code .code-box { border-style: solid; border-color: var(--c); color: var(--ink); }
+.zcode { font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+@media (min-width: 760px) {
+  .pz-top { grid-template-columns: minmax(0, 1fr) 220px; }
+  .pz-code { border-top: 0; border-left: 1px solid var(--line); padding: 0 0 0 18px; }
+}
+@media (min-width: 1000px) {
+  .prep { grid-template-columns: 300px minmax(0, 1fr); max-width: 1320px; margin: 0 auto; }
+  .prep-rail { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+  .pr-list { max-height: none; }
+}
+
+/* ───────── Billets à imprimer : un par secteur */
+.codes { max-width: 820px; margin: 0 auto; display: grid; gap: 16px; }
+.code-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; display: grid; gap: 12px; }
+.cc-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cc-top b { font: 800 22px/1 var(--f-display); text-transform: uppercase; letter-spacing: .02em; }
+.cc-top .muted { font-size: 13px; font-weight: 600; margin-left: auto; }
+.cc-mid { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.cc-code { display: grid; gap: 6px; flex: 1; min-width: 180px; }
+.cc-code .code-box { font-size: 42px; padding: 16px 10px; }
+.cc-mid .qr { width: 150px; margin: 0; }
+.cc-how { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+.cc-st { margin: 0; font-size: 13px; color: var(--ink-2); }
+.cc-st b { color: var(--ink); }
+
+@media print {
+  /* Sur papier, toujours de l'encre noire sur blanc, même si le téléphone est en thème sombre */
+  :root:root:root, :root:root:root[data-theme="dark"] {
+    --bg: #FFFFFF; --surface: #FFFFFF; --surface-2: #FFFFFF; --ink: #000000; --ink-2: #1A1A1A;
+    --muted: #4A4A4A; --line: #9A9A9A; --shadow: none; --chrome: #FFFFFF; --chrome-ink: #000000;
+    color-scheme: light;
+  }
+  .top, .tabs, .hivis, .demo-banner, .page-head, .page-foot, #sheet, #toast, .no-print { display: none !important; }
+  /* Une page ouverte s'imprime seule ; sinon on imprime l'écran, pas une feuille blanche */
+  body:has(.page:not([hidden])) #main { display: none !important; }
+  html, body, #app, .page { position: static !important; height: auto !important; overflow: visible !important; background: #fff !important; color: #000 !important; }
+  .page[hidden] { display: none !important; }
+  .page-body { overflow: visible !important; padding: 0 !important; }
+  .codes { max-width: none; gap: 0; }
+  .code-card { break-inside: avoid; page-break-inside: avoid; border: 1px dashed #666; border-radius: 0; margin-bottom: 10mm; padding: 10mm; background: #fff; }
+  .code-card .code-box { background: #fff; border-color: #000; color: #000; }
+  .cc-mid .qr { width: 200px; padding: 6px; }
+}

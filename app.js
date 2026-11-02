@@ -43,7 +43,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage plein ou bloqué */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* idem */ } },
 };
-const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', theme: 'cal.theme', welcomed: 'cal.welcomed', made: 'cal.made', fixLater: 'cal.fixlater', adminKey: 'cal.adminkey' };
+const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', zone: 'cal.zone', theme: 'cal.theme', welcomed: 'cal.welcomed', made: 'cal.made', fixLater: 'cal.fixlater', adminKey: 'cal.adminkey' };
 
 // ═════════════════════════ Données du secteur (5 communes)
 const O_LAT = 47.5, O_LON = 7.1;
@@ -78,11 +78,43 @@ const ZONE_COLORS = ['#7C3AED', '#0891B2', '#DB2777', '#0D9488', '#CA8A04', '#4F
 const EMPTY = () => ({ settings: { name: 'Calendriers 2027', year: 2027, code: '', u: 0 }, members: {}, zones: {}, passages: {}, extra: {}, bld: {} });
 const KIND_COL = { passage: 'passages', member: 'members', zone: 'zones', addr: 'extra', bld: 'bld' };
 
+/** Contrôle ce qui vient d'ailleurs (feuille, sauvegarde, ancien stockage) : types forcés, ou null pour ignorer.
+ *  L'affichage insère ids et couleurs sans échappement : ils doivent rester simples. */
+const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9][\w~-]{0,63}$/.test(v) && !(v in Object.prototype);
+const txt = (v) => (v == null ? '' : String(v).slice(0, 2000));
+const nb = (v) => (Number.isFinite(+v) ? +v : 0);
+const idList = (v) => (Array.isArray(v) ? v.filter(isId) : []);
+const hex = (v, d) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : d);
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const known = (o, k, d) => (typeof k === 'string' && has(o, k) ? k : d);
+function clean(kind, id, d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  if (kind === 'settings') return { ...d, name: txt(d.name), year: nb(d.year), code: d.code ? txt(d.code) : '', reset: nb(d.reset), u: nb(d.u) };
+  if (!has(KIND_COL, kind) || !isId(id)) return null;
+  const o = { ...d, u: nb(d.u), del: !!d.del };
+  if (kind === 'member') return Object.assign(o, { id, name: txt(d.name).trim() || '?', color: hex(d.color, PALETTE[0]) });
+  if (kind === 'zone') return Object.assign(o, { id, name: txt(d.name), code: /^\d{4}$/.test(String(d.code || '')) ? String(d.code) : '', color: hex(d.color, ZONE_COLORS[0]), members: idList(d.members), addrs: idList(d.addrs), order: nb(d.order), auto: !!d.auto });
+  if (kind === 'bld') return Object.assign(o, { id, n: clamp(nb(d.n) | 0, 1, 99), labels: (Array.isArray(d.labels) ? d.labels.slice(0, 99) : []).map(txt) });
+  if (kind === 'addr') {
+    if (!Number.isFinite(d.lat) || !Number.isFinite(d.lon)) return null;
+    return Object.assign(o, { id, com: COMMUNES.includes(d.com) ? d.com : COMMUNES[0], street: txt(d.street) || '?', num: txt(d.num) || '?' });
+  }
+  const rp = d.rp && typeof d.rp === 'object' ? d.rp : null, l = d._l && typeof d._l === 'object' ? d._l : null;
+  return Object.assign(o, {
+    status: known(STATUS, d.status, 'todo'), at: nb(d.at), by: idList(d.by), name: txt(d.name), note: txt(d.note),
+    rp: rp && { date: typeof rp.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rp.date) ? rp.date : '', slot: known(SLOTS, rp.slot, ''), note: txt(rp.note), done: !!rp.done },
+    hist: (Array.isArray(d.hist) ? d.hist : []).filter((h) => h && has(STATUS, h.s)).slice(-20).map((h) => ({ s: h.s, at: nb(h.at), by: idList(h.by) })),
+    _l: l && { com: txt(l.com), rue: txt(l.rue), num: txt(l.num), lg: txt(l.lg) },
+  });
+}
+
 const Store = {
   live: null, demo: null, mode: 'live', rev: 0, _t: 0,
   init() {
-    this.live = Object.assign(EMPTY(), LS.get(K.state, null) || {});
-    for (const k of Object.values(KIND_COL)) this.live[k] ||= {};
+    const raw = LS.get(K.state, null) || {};
+    this.live = EMPTY();
+    this.live.settings = clean('settings', 'main', raw.settings) || this.live.settings;
+    for (const [kind, col] of Object.entries(KIND_COL)) for (const [id, rec] of Object.entries(raw[col] || {})) { const r = clean(kind, id, rec); if (r) this.live[col][id] = r; }
     if (LS.get(K.mode, 'live') === 'demo') this.enterDemo(false);
   },
   get s() { return this.mode === 'demo' ? this.demo : this.live; },
@@ -101,13 +133,13 @@ const Store = {
   },
   save() { clearTimeout(this._t); this._t = setTimeout(() => LS.set(K.state, this.live), 200); },
   applyRemote(it) {
-    const s = this.live, u = Number(it.updated_at) || 0;
-    if (it.kind !== 'settings' && !KIND_COL[it.kind]) return false;
+    const s = this.live, u = Number(it?.updated_at) || 0, data = it && clean(it.kind, it.id, it.data);
+    if (!data) return false;
     const cur = it.kind === 'settings' ? s.settings : s[KIND_COL[it.kind]][it.id];
     if (cur && (cur.u || 0) >= u) return false;
     const q = Sync.queue[it.kind + ':' + it.id];
     if (q && q.updated_at >= u) return false;
-    const rec = { ...(it.data || {}), u };
+    const rec = { ...data, u };
     if (it.kind === 'settings') s.settings = rec; else s[KIND_COL[it.kind]][it.id] = rec;
     return true;
   },
@@ -116,7 +148,7 @@ const Store = {
 // ═════════════════════════ Synchronisation d'équipe : feuille Google Sheets (gratuite)
 const Sync = {
   code: LS.get(K.code, ''), queue: LS.get(K.queue, {}), since: +LS.get(K.since, 0) || 0, sheet: LS.get(K.sheet, ''),
-  state: 'local', err: '', lastOk: 0, timer: 0, _t: 0, _busy: false,
+  state: 'local', err: '', lastOk: 0, timer: 0, _t: 0, _busy: false, gen: 0,
   url() { const o = LS.get(K.cfg, {}); return String(o.url || (window.CAL_CONFIG || {}).sheetUrl || '').trim(); },
   get configured() { return /^https:\/\/script\.google(usercontent)?\.com\/.+/.test(this.url()); },
   get pending() { return Object.keys(this.queue).length; },
@@ -126,7 +158,7 @@ const Sync = {
     this.timer = setInterval(() => { if (document.visibilityState === 'visible' && ((Role.admin && UI.view === 'map') || Date.now() - this.lastOk > 18000)) this.cycle(); }, 10000);
     this._p = this.cycle();
   },
-  stop() { clearInterval(this.timer); clearTimeout(this._t); this.timer = 0; },
+  stop() { clearInterval(this.timer); clearTimeout(this._t); this.timer = 0; this.gen++; },
   set(st, err = '') { this.state = st; this.err = err; App.renderSync(); },
   enqueueMany(items) {
     for (const it of items) this.queue[it.kind + ':' + it.id] = it;
@@ -153,11 +185,13 @@ const Sync = {
   async cycle() {
     if (!this.configured || !this.code || this._busy) return;
     if (!navigator.onLine) { this.set('offline'); return; }
+    const gen = this.gen;
     this._busy = true; this.set('syncing');
     try {
       for (let guard = 0; guard < 30; guard++) {
         const batch = Object.values(this.queue).slice(0, 120);
         const j = await this.call({ v: 2, code: this.code, since: this.since, items: batch });
+        if (gen !== this.gen) return; // arrêtée pendant l'envoi (autre équipe, autre feuille, téléphone effacé) : réponse périmée
         for (const it of batch) { const k = it.kind + ':' + it.id; if (this.queue[k]?.updated_at === it.updated_at) delete this.queue[k]; }
         LS.set(K.queue, this.queue);
         let changed = false;
@@ -169,6 +203,7 @@ const Sync = {
       }
       this.lastOk = Date.now(); this.set('online');
     } catch (e) {
+      if (gen !== this.gen) return;
       const msg = e?.name === 'AbortError' ? 'La feuille met trop de temps à répondre' : e?.message || String(e);
       if (/incorrect/i.test(msg) && LS.get(K.made, '') === this.code) {
         // Ce téléphone a créé un code alors que l'équipe existe déjà : il doit la rejoindre (QR du responsable)
@@ -178,11 +213,14 @@ const Sync = {
         return;
       }
       this.set(navigator.onLine ? 'error' : 'offline', msg);
-    } finally { this._busy = false; }
+    } finally {
+      this._busy = false;
+      if (gen !== this.gen && this.timer) this._p = this.cycle(); // la synchro relancée entre-temps n'a pas pu partir
+    }
   },
 };
 const genCode = () => { const al = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; const r = crypto.getRandomValues(new Uint32Array(8)); let s = ''; for (let i = 0; i < 8; i++) s += al[r[i] % al.length]; return `SEP-${s.slice(0, 4)}-${s.slice(4)}`; };
-const joinLink = () => `${location.origin}${location.pathname}#join=${encodeURIComponent(Sync.code)}&s=${encodeURIComponent(Sync.url())}`;
+const joinLink = (zcode = '') => `${location.origin}${location.pathname}#join=${encodeURIComponent(Sync.code)}&s=${encodeURIComponent(Sync.url())}${zcode ? '&z=' + encodeURIComponent(zcode) : ''}`;
 function setCode(code, made = false) {
   Sync.stop();
   if (!made && !Store.demoOn) {
@@ -190,6 +228,7 @@ function setCode(code, made = false) {
     const e = EMPTY(); Store.live.members = {}; Store.live.zones = {}; Store.live.settings = e.settings; Store.rev++; LS.set(K.state, Store.live);
   }
   Sync.code = code; LS.set(K.code, code); LS.set(K.made, made ? code : '');
+  if (!made) LS.del(K.zone); // autre équipe : le code de secteur d'avant ne veut plus rien dire
   Sync.since = 0; LS.del(K.since);
   Sync.queue = {}; LS.set(K.queue, {}); // rien d'ancien (essais, autre équipe) ne part dans la feuille
   Sync.enqueueAll(); Sync.start();
@@ -383,7 +422,7 @@ function assignStreetToPeople(sk, ids) {
   let z = ids.length ? zones().find((x) => { const lm = (x.members || []).filter(member); return lm.length && key(lm) === key(ids); }) : null;
   if (ids.length && !z) {
     const id = uid('z'), color = ZONE_COLORS.find((c) => !zones().some((x) => x.color === c)) || ZONE_COLORS[zones().length % ZONE_COLORS.length];
-    z = Store.put('zone', id, { id, name: names(ids), color, members: [...ids], addrs: [], order: zones().length, auto: true });
+    z = Store.put('zone', id, { id, name: names(ids), code: newZoneCode(), color, members: [...ids], addrs: [], order: zones().length, auto: true });
   }
   assignStreetToZone(sk, z ? z.id : '');
 }
@@ -401,8 +440,33 @@ function streetPeople(sk) {
     <small class="muted">${t.shared ? 'Rue partagée entre plusieurs équipes : toucher un prénom confie toute la rue à cette équipe.' : t.members.length ? `Confiée à <b>${esc(names(t.members))}</b> : ils la voient en rouge sur leur carte.` : 'Personne pour l’instant : touchez un ou plusieurs prénoms.'}</small>
   </div>`;
 }
-/** Les secteurs confiés à l'équipe de ce téléphone. */
-const myZones = () => { const t = Me.team(); return t.length ? zones().filter((z) => (z.members || []).some((m) => t.includes(m))) : []; };
+/** Code à 4 chiffres d'un secteur : ce que l'équipe saisit après avoir scanné le QR code. */
+const zoneByCode = (code) => {
+  const c = String(code || '').replace(/\D/g, '');
+  if (c.length !== 4) return null;
+  const hits = zones().filter((z) => z.code === c);
+  return hits.length === 1 ? hits[0] : null; // deux secteurs avec le même code : on ne devine pas
+};
+/** Codes utilisés par deux secteurs à la fois : à corriger avant d'imprimer les billets. */
+const dupCodes = () => { const n = {}; for (const z of zones()) if (z.code) n[z.code] = (n[z.code] || 0) + 1; return Object.keys(n).filter((c) => n[c] > 1); };
+function newZoneCode() {
+  // Les secteurs supprimés comptent aussi : un billet déjà imprimé ne doit jamais ouvrir un autre secteur
+  const used = new Set(Object.values(Store.s.zones).map((z) => z && z.code).filter(Boolean));
+  for (const n of crypto.getRandomValues(new Uint32Array(60))) { const c = String(1000 + (n % 9000)); if (!used.has(c)) return c; }
+  return String(1000 + used.size);
+}
+/** Le secteur de ce téléphone : saisi une fois, il décide des rues visibles. */
+const Sector = {
+  get code() { return String(LS.get(K.zone, '') || ''); },
+  get zone() { const c = this.code; return c && !Store.demoOn ? zones().find((z) => z.code === c) || null : null; },
+  set(code) { LS.set(K.zone, String(code || '')); Store.rev++; App.changed(); },
+  clear() { LS.del(K.zone); Store.rev++; App.changed(); },
+};
+/** Les secteurs de ce téléphone : celui de son code, sinon ceux de son équipe (ancienne façon). */
+const myZones = () => {
+  if (Sector.code) { const z = Sector.zone; return z ? [z] : []; } // un code saisi fait foi, même s'il ne correspond plus
+  const t = Me.team(); return t.length ? zones().filter((x) => (x.members || []).some((m) => t.includes(m))) : [];
+};
 /** Adresses confiées à l'équipe de ce téléphone. */
 const myAddrSet = () => memo('myAddrs', () => new Set(myZones().flatMap((z) => z.addrs || [])));
 /** Le responsable voit tout ; un distributeur ne voit que les adresses de ses rues. */
@@ -553,7 +617,7 @@ function saveZone(z) {
     if (keep.length !== (other.addrs || []).length) Store.put('zone', other.id, { ...other, addrs: keep });
   }
   const cur = Store.s.zones[z.id] || {};
-  Store.put('zone', z.id, { ...cur, ...z, addrs: [...set] });
+  Store.put('zone', z.id, { ...cur, ...z, code: z.code || cur.code || newZoneCode(), addrs: [...set] });
   pruneAutoZones();
 }
 function moveAddrToZone(addrId, zoneId) {
@@ -611,7 +675,7 @@ function autoGroups(k, keepStreets = true) {
 }
 function replaceZones(groups, namer) {
   for (const z of zones()) Store.put('zone', z.id, { ...z, del: true });
-  groups.forEach((ids, i) => { const id = uid('z'); Store.put('zone', id, { id, name: namer(ids, i), color: ZONE_COLORS[i % ZONE_COLORS.length], addrs: ids, members: [], order: i }); });
+  groups.forEach((ids, i) => { const id = uid('z'); Store.put('zone', id, { id, name: namer(ids, i), code: newZoneCode(), color: ZONE_COLORS[i % ZONE_COLORS.length], addrs: ids, members: [], order: i }); });
 }
 const comsOf = (ids) => [...new Set(ids.map((id) => addrIdx().get(id)?.com).filter(Boolean))].sort((a, b) => comIdx(a) - comIdx(b));
 
@@ -720,9 +784,10 @@ const App = {
     if (!busy) VIEWS[UI.view]();
     if (MapView.map) MapView.refresh();
     if (Page.cur) Page.refresh();
-    if (Sheet.refresh) Sheet.refresh();
+    const se = document.activeElement;
+    if (Sheet.refresh && !(se && $('#sheet')?.contains(se) && /^(INPUT|TEXTAREA|SELECT)$/.test(se.tagName))) Sheet.refresh();
   },
-  renderSync() { renderHeader(); liveLine(); if (Page.cur === 'settings') Page.refresh(); },
+  renderSync() { renderHeader(); liveLine(); if (Page.cur === 'settings' || Page.cur === 'welcome' || (Page.cur === 'reset' && /^phone/.test(Page.args.step || ''))) Page.refresh(); },
 };
 const VIEWS = { home: renderHome, map: renderMapView, tour: renderTour, rep: renderRep, team: renderTeam };
 function go(v) {
@@ -792,8 +857,7 @@ function renderHome() {
       <div class="card-h"><h2>Mes rues</h2><span class="muted">${esc(mine.map((z) => z.name).join(', '))}</span></div>
       ${myStreets.slice(0, 6).map((st) => streetMini(st)).join('')}
       ${myStreets.length > 6 ? `<button class="link" data-act="go" data-v="team">Voir mes ${myStreets.length} rues</button>` : ''}
-    </section>` : Me.team().length ? `<section class="card"><div class="empty"><b>Aucune rue attribuée</b>Le responsable n’a pas encore confié de rues à votre équipe.</div></section>`
-      : `<section class="card"><div class="empty"><b>Qui êtes-vous ?</b>Choisissez votre prénom et celui des personnes avec vous.<button class="btn" data-act="me-sheet">Choisir</button></div></section>`}
+    </section>` : `<section class="card"><div class="empty">${(() => { const h = sectorHint(); return h ? sectorHintHtml(h) : '<b>Qui êtes-vous ?</b><span>Choisissez votre prénom et celui des personnes avec vous.</span><button class="btn" data-act="me-sheet">Choisir</button>'; })()}</div></section>`}
     <section class="card">
       <div class="card-h"><h2>Aujourd'hui</h2><span class="muted">${DOWL[now.getDay()]} ${now.getDate()} ${MON[now.getMonth()]}</span></div>
       <div class="today">
@@ -846,7 +910,7 @@ function coverageBlock() {
 function zoneRow(z) {
   const g = stats().byZone[z.id] || { total: 0, visited: 0, st: blankSt() };
   const nStreets = zonesStreets([z]).length;
-  return `<button class="zone-row as-btn" data-act="zone-edit" data-v="${z.id}"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="meta">${pct(g.visited, g.total)} %</span>${stackBar(g.st, g.total, 'sm')}<span class="zone-team" style="grid-column:2/-1">${(z.members || []).length ? avatars(z.members, 4, 'sm') + ' ' + esc(names(z.members)) : '<i class="todo">Aucune équipe</i>'} · ${nStreets} rues · ${nf(g.total)} foyers</span></button>`;
+  return `<button class="zone-row as-btn" data-act="zone-edit" data-v="${z.id}"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="meta">${pct(g.visited, g.total)} %</span>${stackBar(g.st, g.total, 'sm')}<span class="zone-team" style="grid-column:2/-1">${z.code ? `<b class="zcode">${esc(z.code)}</b> · ` : ''}${(z.members || []).length ? avatars(z.members, 4, 'sm') + ' ' + esc(names(z.members)) : '<i class="todo">Aucune équipe</i>'} · ${nStreets} rues · ${nf(g.total)} foyers</span></button>`;
 }
 /** Une rue dans « mes rues » : ce qu'il reste à y faire. */
 function streetMini(st) {
@@ -895,11 +959,8 @@ function renderMapView() {
     let hint = $('#map-hint');
     if (!hint) { hint = document.createElement('div'); hint.id = 'map-hint'; hint.className = 'map-empty'; $('#map-host').appendChild(hint); }
     hint.hidden = Role.admin || tot > 0;
-    hint.innerHTML = Sync.configured && !Sync.code && !Store.demoOn
-      ? `<b>Reliez ce téléphone à l’équipe</b><span>Scannez le QR code du responsable avec l’appareil photo : vos rues apparaîtront ici, en rouge.</span><button class="btn sm" data-act="page" data-v="welcome" data-step="join">J’ai le code de l’équipe</button>`
-      : Me.team().length
-      ? `<b>Aucune rue pour l’instant</b><span>Pas encore de rues pour ${esc(names(Me.team()))} : elles apparaîtront ici dès que le responsable les aura attribuées.</span>`
-      : `<b>Qui êtes-vous ?</b><span>Choisissez votre prénom pour voir vos rues sur la carte.</span><button class="btn sm" data-act="me-sheet">Choisir</button>`;
+    const h = sectorHint();
+    hint.innerHTML = h ? sectorHintHtml(h) : `<b>Aucune rue pour l’instant</b><span>Elles apparaîtront ici dès que le responsable les aura attribuées.</span>`;
     $('#layer-lbl').textContent = MapView.layer === 'sat' ? 'Plan' : 'Satellite';
   }
 }
@@ -943,7 +1004,12 @@ function streetRows() {
   const g = (st) => S.byStreet.get(st.sk), prog = (st) => g(st).visited / g(st).total;
   if (UI.sort === 'todo') rows.sort((a, b) => g(b).st.todo - g(a).st.todo);
   else if (UI.sort === 'prog') rows.sort((a, b) => prog(b) - prog(a));
-  if (!rows.length) return searchAddrs(UI.q).length ? '' : !Role.admin && !visStreets().length ? `<div class="empty"><b>Aucune rue attribuée</b>${Me.team().length ? 'Le responsable n’a pas encore confié de rues à votre équipe.' : 'Choisissez votre prénom pour voir vos rues.<button class="btn" data-act="me-sheet">Choisir</button>'}</div>` : '<div class="empty"><b>Aucune rue</b>Modifiez la recherche ou les filtres.</div>';
+  if (!rows.length) {
+    if (searchAddrs(UI.q).length) return '';
+    const h = !Role.admin && !visStreets().length ? sectorHint() : null;
+    if (h) return `<div class="empty">${sectorHintHtml(h)}</div>`;
+    return !Role.admin && !visStreets().length ? '<div class="empty"><b>Aucune rue attribuée</b><span>Le responsable n’a pas encore confié de rues à votre secteur.</span></div>' : '<div class="empty"><b>Aucune rue</b>Modifiez la recherche ou les filtres.</div>';
+  }
   const card = (st) => {
     const r = g(st);
     const info = [r.st.todo ? `${r.st.todo} à faire` : 'Rue terminée', r.st.repasse ? `${r.st.repasse} à repasser` : '', r.st.absent ? `${r.st.absent} absents` : ''].filter(Boolean).join(' · ');
@@ -1108,8 +1174,8 @@ function tourLaterForm() {
   </div>`;
 }
 function tourSetup() {
-  const S = stats(), team = Me.team(), zi = zoneIndex();
-  const mine = zones().filter((z) => (z.members || []).some((m) => team.includes(m)));
+  const S = stats(), zi = zoneIndex();
+  const mine = myZones();
   const inMine = (st) => st.addrs.some((a) => mine.some((z) => zi.get(a.id) === z.id));
   const myStreets = mine.length ? streets().filter(inMine) : [];
   const openN = openOf;
@@ -1121,7 +1187,7 @@ function tourSetup() {
     <h2 class="display">Où tournez-vous ?</h2>
     <button class="near-btn" data-act="tour-near">${ico('locate')}<span><b>Portes autour de moi</b><small>Le GPS propose le foyer le plus proche à faire.</small></span></button>
     ${myStreets.length ? `<div class="lbl">Vos rues · ${esc(mine.map((z) => z.name).join(', '))}</div><div class="street-list">${myStreets.map(row).join('')}</div>`
-      : Role.admin ? '' : `<section class="card"><div class="empty"><b>${Me.team().length ? 'Aucune rue attribuée' : 'Qui êtes-vous ?'}</b>${Me.team().length ? 'Le responsable n’a pas encore confié de rues à votre équipe.' : 'Choisissez votre prénom pour voir vos rues.<button class="btn" data-act="me-sheet">Choisir</button>'}</div></section>`}
+      : Role.admin ? '' : `<section class="card"><div class="empty">${(() => { const h = sectorHint(); return h ? sectorHintHtml(h) : '<b>Aucune rue attribuée</b><span>Le responsable n’a pas encore confié de rues à votre secteur.</span>'; })()}</div></section>`}
     ${Role.admin ? `<div class="lbl">${myStreets.length ? 'Autres rues' : 'Choisissez une rue'}</div>
     ${comChips('tour-com', UI.com)}
     <div class="street-list">${others.map(row).join('')}</div>` : ''}
@@ -1185,7 +1251,11 @@ function renderAdmin() {
       <div class="card-h"><h2>Couverture</h2><span class="muted">${zs.length} secteur${zs.length > 1 ? 's' : ''}</span></div>
       ${zs.length ? coverageBlock() : '<p class="muted" style="margin:0 0 12px">Un secteur, c’est un paquet de rues confié à une équipe de 2 ou 3 personnes.</p>'}
       <div class="grid2">
-        <button class="btn" data-act="zone-new">${ico('plus')} Nouveau secteur</button>
+        <button class="btn" data-act="page" data-v="prep">${ico('pen')} Préparer les secteurs</button>
+        <button class="btn ghost" data-act="page" data-v="codes">${ico('grid')} Codes à distribuer</button>
+      </div>
+      <div class="grid2" style="margin-top:8px">
+        <button class="btn ghost" data-act="zone-new">${ico('plus')} Nouveau secteur</button>
         <button class="btn ghost" data-act="draw-start">${ico('pen')} Sur la carte</button>
       </div>
       <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!UI.auto}">${ico('sparkle')} Répartition automatique</button>
@@ -1193,11 +1263,13 @@ function renderAdmin() {
         <button class="btn block" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button>
         <div class="note-box">Ou un découpage équilibré : les rues restent entières et chaque équipe reçoit à peu près le même nombre de foyers.</div>
         <div class="set-row" style="border:0"><div class="t"><b>Nombre de secteurs</b><small>≈ ${nf(Math.round(S.total / (UI.autoN || 6)))} foyers chacun</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${UI.autoN || 6}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
+        ${zs.some((z) => z.code) ? '<div class="note-box">Remplacer les secteurs leur donne de <b>nouveaux codes</b> : les billets déjà distribués ne marcheront plus.</div>' : ''}
         <button class="btn ghost block" data-act="auto-go">${zs.length ? `Remplacer les ${zs.length} secteurs` : 'Créer les secteurs'}</button>
       </div>` : ''}
     </section>
     ${zs.length ? `<section class="card">
       <div class="card-h"><h2>Secteurs et équipes</h2><button class="link" data-act="share-assign">Partager</button></div>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">Le nombre en gras est le code que l’équipe du secteur saisit sur son téléphone.</p>
       ${zs.map((z) => zoneRow(z)).join('')}
     </section>` : ''}
     <section class="card">
@@ -1217,13 +1289,27 @@ function renderAdmin() {
 
 /** Choix des personnes présentes sur ce téléphone (1 à 4, le plus souvent 2 ou 3). */
 function meBlock() {
-  const t = Me.team(), ms = members();
-  if (!ms.length) return '<div class="empty"><b>Pas encore de pompiers</b>Le responsable doit d’abord créer la liste.</div>';
+  const t = Me.team(), ms = members(), z = Sector.zone;
+  const chip = (m) => `<button class="chip mchip" data-act="me-toggle" data-v="${m.id}" aria-pressed="${t.includes(m.id)}">${avatar(m.id, 'sm')} ${esc(m.name)}</button>`;
+  const mine = z ? ms.filter((m) => (z.members || []).includes(m.id)) : [];
+  const rest = ms.filter((m) => !mine.includes(m));
+  const add = `<details class="more" style="margin-top:12px"><summary>Mon prénom n’est pas dans la liste</summary><div>${addMemberForm().replace('data-form="add-member"', 'data-form="me-add"')}<p class="muted" style="margin:8px 0 0;font-size:13px">Un prénom par ligne. Il arrivera aussi chez le responsable.</p></div></details>`;
+  if (!ms.length) return `<div class="empty"><b>Pas encore de pompiers</b><span>${z ? 'Ajoutez votre prénom : chaque porte notée sera à votre nom.' : 'Le responsable doit d’abord créer la liste.'}</span></div>${z ? addMemberForm().replace('data-form="add-member"', 'data-form="me-add"') : ''}`;
   return `<div class="lbl">Qui fait la tournée avec ce téléphone ?</div>
     <p class="muted" style="margin:6px 0 12px;font-size:13.5px">Touchez votre prénom et celui des personnes avec vous. Chaque porte notée sera à vos noms.</p>
-    <div class="chips wrap">${ms.map((m) => `<button class="chip mchip" data-act="me-toggle" data-v="${m.id}" aria-pressed="${t.includes(m.id)}">${avatar(m.id, 'sm')} ${esc(m.name)}</button>`).join('')}</div>
-    <div class="me-now">${t.length ? `${avatars(t, 4, 'sm')} <b>${esc(names(t))}</b>` : '<span class="muted">Personne de choisi : les passages ne seront attribués à personne.</span>'}</div>`;
+    ${mine.length ? `<div class="chips wrap">${mine.map(chip).join('')}</div>${rest.length ? `<details class="more" style="margin-top:12px"><summary>Quelqu’un d’un autre secteur</summary><div><div class="chips wrap">${rest.map(chip).join('')}</div></div></details>` : ''}`
+      : `<div class="chips wrap">${ms.map(chip).join('')}</div>`}
+    <div class="me-now">${t.length ? `${avatars(t, 4, 'sm')} <b>${esc(names(t))}</b>` : '<span class="muted">Personne de choisi : les passages ne seront attribués à personne.</span>'}</div>
+    ${add}`;
 }
+/** Ce qui manque à un distributeur pour voir ses rues : l'équipe, puis le code du secteur. */
+function sectorHint() {
+  if (Role.admin || Store.demoOn || myZones().length) return null;
+  if (Sync.configured && !Sync.code) return { b: 'Reliez ce téléphone à l’équipe', s: 'Scannez le QR code du billet de votre secteur avec l’appareil photo.', btn: 'J’ai le code de l’équipe', step: 'join' };
+  if (Sector.code) return { b: 'Code de secteur inconnu', s: `Le code ${Sector.code} ne correspond à aucun secteur reçu sur ce téléphone. Synchronisez, ou vérifiez le code auprès du responsable.`, btn: 'Saisir un autre code', step: 'secteur' };
+  return { b: 'Quel est votre secteur ?', s: 'Saisissez le code à 4 chiffres du billet. Sans code, le responsable peut aussi vous attribuer des rues par votre prénom.', btn: 'Saisir le code du secteur', step: 'secteur' };
+}
+const sectorHintHtml = (h) => `<b>${h.b}</b><span>${esc(h.s)}</span><button class="btn sm" data-act="page" data-v="welcome" data-step="${h.step}">${h.btn}</button>`;
 
 // ═════════════════════════ Feuilles (bottom sheets)
 const Sheet = {
@@ -1301,7 +1387,7 @@ function openBuilding(addrId, opts = {}) {
     <div class="sheet-body">
       <div class="set-row" style="border:0;padding:0"><div class="t"><b>Logements à cette adresse</b><small>Chaque logement a son propre statut et ses repasses.</small></div><div class="stepper" style="min-width:150px"><button data-act="bld-n" data-v="-1" aria-label="Un logement de moins">${ico('minus')}</button><b>${us.length}</b><button data-act="bld-n" data-v="1" aria-label="Un logement de plus">${ico('plus')}</button></div></div>
       ${us.length > 1 ? `${stackBar(c, us.length)}<div class="unit-grid">${us.map((u) => { const st = statusOf(u.id); return `<button class="unit" data-st="${st}" data-act="unit" data-id="${u.id}"><b>${esc(u.label)}</b><span class="st-pill" data-st="${st}">${STATUS[st].short}</span></button>`; }).join('')}</div>` : `<button class="btn block" data-act="unit" data-id="${us[0].id}">Noter le passage</button>`}
-      ${zoneSelect(BS.id)}
+      ${Role.admin ? zoneSelect(BS.id) : ''}
     </div>`;
   };
   draw(); Sheet.refresh = draw;
@@ -1380,7 +1466,7 @@ function openMeSheet() {
     panel.innerHTML = `<div class="sheet-grab"></div>
     <header class="sheet-head"><div class="t"><b>Qui fait la tournée ?</b><small>Votre prénom et celui des personnes avec vous, souvent 2 ou 3.</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
     <div class="sheet-body">${meBlock()}</div>
-    <footer class="sheet-foot">${members().length ? `<button class="btn block" data-act="sheet-close" ${t.length ? '' : 'disabled'}>${t.length ? 'C’est parti' : 'Choisissez au moins une personne'}</button>` : (Role.admin ? '<button class="btn block" data-act="go" data-v="team">Voir l’équipe</button>' : '<button class="btn block ghost" data-act="sheet-close">Fermer · la liste arrivera dès que le responsable l’aura créée</button>')}</footer>`;
+    <footer class="sheet-foot">${members().length ? `<button class="btn block" data-act="sheet-close" ${t.length ? '' : 'disabled'}>${t.length ? 'C’est parti' : 'Choisissez au moins une personne'}</button>` : Role.admin ? '<button class="btn block" data-act="go" data-v="team">Voir l’équipe</button>' : Sector.zone ? '<button class="btn block ghost" data-act="sheet-close">Fermer</button>' : '<button class="btn block ghost" data-act="sheet-close">Fermer · la liste arrivera dès que le responsable l’aura créée</button>'}</footer>`;
   };
   draw(); Sheet.refresh = draw;
 }
@@ -1396,7 +1482,14 @@ const Page = {
     root.innerHTML = `${bare ? '' : `<header class="page-head"><button class="icon-btn" data-act="page-close" aria-label="Retour">${ico('chev-l')}</button><h2>${esc(title)}</h2></header>`}<div class="page-body${bare ? ' bare' : ''}">${body}</div>${foot ? `<footer class="page-foot">${foot}</footer>` : ''}`;
     $('.page-body', root).scrollTop = sc;
   },
-  refresh() { if (!this.cur) return; const ae = document.activeElement; if (ae && $('#page').contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return; this.render(false); },
+  refresh() {
+    if (!this.cur) return;
+    const ae = document.activeElement, onQ = ae && ae.id === 'pz-q';
+    if (ae && !onQ && $('#page').contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+    const pos = onQ ? ae.selectionStart : null;
+    this.render(false);
+    if (pos != null) { const n = $('#pz-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
+  },
   set(patch) { Object.assign(this.args, patch); this.render(false); },
 };
 const PAGES = {};
@@ -1417,6 +1510,17 @@ PAGES.settings = (args) => {
       <div class="field"><label for="set-name">Nom affiché</label><input id="set-name" class="input" data-set="name" value="${esc(set.name || '')}"></div>
       ${(window.CAL_CONFIG || {}).adminHash ? '<p class="muted" style="margin:12px 0 0;font-size:13.5px">Code d’accès responsable : le même pour tous les responsables, à ne donner qu’à eux. Pour le changer, voir README.md.</p>' : `<div class="field" style="margin-top:12px"><label for="set-code">Code responsable</label><input id="set-code" class="input" inputmode="numeric" data-set="code" value="${esc(set.code || '')}" placeholder="4 chiffres"><small class="muted">À donner seulement aux personnes qui répartissent les rues.</small></div>`}
     </section>` : ''}
+    ${admin ? `<section class="card" id="sec-prep"><div class="card-h"><h2>Secteurs</h2><span class="muted">${zones().length}</span></div>
+      <div class="grid2"><button class="btn" data-act="page" data-v="prep">${ico('pen')} Préparer les secteurs</button><button class="btn ghost" data-act="page" data-v="codes">${ico('grid')} Codes et QR</button></div>
+      <p class="muted" style="margin:10px 0 0;font-size:13px">Sur ordinateur : cochez les rues de chaque secteur, puis imprimez un billet par équipe.</p>
+    </section>`
+    : `<section class="card" id="sec-prep"><div class="card-h"><h2>Mon secteur</h2><span class="muted">${Sector.zone ? esc(Sector.zone.name) : 'aucun'}</span></div>
+      ${Sector.zone ? `<p class="muted" style="margin:0 0 12px">Code <b>${esc(Sector.code)}</b> · ${zonesStreets([Sector.zone]).length} rue${zonesStreets([Sector.zone]).length > 1 ? 's' : ''} · ${nf((stats().byZone[Sector.zone.id] || {}).total || 0)} foyers. Vous ne voyez que ces rues.</p>`
+        : Sector.code ? `<div class="note-box" style="margin-bottom:12px">Le code ${esc(Sector.code)} ne correspond à aucun secteur reçu ici. Demandez le bon code au responsable.</div>`
+        : '<p class="muted" style="margin:0 0 12px">Saisissez le code à 4 chiffres du billet : vous verrez les rues de votre secteur.</p>'}
+      <form class="street-tools" data-form="sector"><input class="input" name="code" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" aria-label="Code du secteur"><button class="btn" type="submit">${Sector.zone ? 'Changer' : 'Valider'}</button></form>
+      ${Sector.code ? '<button class="link" style="margin-top:10px" data-act="sector-clear">Retirer ce secteur de ce téléphone</button>' : ''}
+    </section>`}
     <section class="card" id="sec-sync">${syncSection()}</section>
     ${admin ? `<section class="card" id="sec-addr"><div class="card-h"><h2>Adresse manquante</h2></div>
       <form data-form="add-addr" class="grid2">
@@ -1445,13 +1549,13 @@ PAGES.settings = (args) => {
 PAGES.reset = (args) => {
   const S = stats(), admin = Role.admin, step = args.step || '';
   const nPass = Object.keys(Store.s.passages).filter((id) => pass(id)).length;
-  const last = resetAt();
+  const last = resetAt(), wait = Sync.code && Sync.configured ? Sync.pending : 0, ws = wait > 1 ? 's' : '';
   return {
     title: 'Remettre à zéro',
     body: `<div class="stackv">
     ${Store.demoOn ? '<div class="note-box"><b>Mode démo</b> : les deux premières remises à zéro sont sans effet ici. Quittez la démo pour les utiliser pour de vrai.</div>' : ''}
     <div class="note-box">${last ? `Dernière remise à zéro : ${dayLabel(isoDay(new Date(last)))} à ${hhmm(last)}.` : 'Aucune remise à zéro pour l’instant.'} ${nPass} foyer${nPass > 1 ? 's' : ''} noté${nPass > 1 ? 's' : ''} actuellement, ${members().length} pompiers, ${zones().length} secteurs.</div>
-    <button class="btn ghost block" data-act="export-json">${ico('download')} Sauvegarder avant d’effacer</button>
+    ${admin ? `<button class="btn ghost block" data-act="export-json">${ico('download')} Sauvegarder avant d’effacer</button>` : ''}
 
     <section class="card danger-card">
       <div class="card-h"><h2>Nouvelle campagne</h2><span class="muted">${admin ? 'toute l’équipe' : 'responsable'}</span></div>
@@ -1471,8 +1575,9 @@ PAGES.reset = (args) => {
 
     <section class="card">
       <div class="card-h"><h2>Effacer ce téléphone</h2><span class="muted">ce téléphone seulement</span></div>
-      <p class="muted" style="margin:0 0 12px">Enlève les données de ce téléphone et le détache de l’équipe. Les autres téléphones ne sont pas touchés${Sync.code ? ' ; si vous rejoignez de nouveau l’équipe, les données reviennent' : ''}.</p>
-      ${step === 'phone' ? `<div class="confirm"><p>Effacer les données de ce téléphone ?</p><div class="grid2"><button class="btn ghost" data-act="reset-step" data-v="">Annuler</button><button class="btn red" data-act="reset-phone">Effacer</button></div></div>`
+      <p class="muted" style="margin:0 0 12px">Enlève les données de ce téléphone et le détache de l’équipe. Les autres téléphones ne sont pas touchés${Sync.code ? ' ; si vous rejoignez de nouveau l’équipe, les données déjà envoyées reviennent' : ''}.</p>
+      ${step === 'phone' && wait ? `<div class="confirm"><p><b>${wait} modification${ws} pas encore envoyée${ws}</b> à la feuille ${wait > 1 ? 'seront perdues' : 'sera perdue'}. Synchronisez d’abord.${Sync.state === 'offline' ? ' <b>Pas de réseau pour l’instant.</b>' : Sync.state === 'error' ? ` <b>Échec : ${esc(Sync.err)}</b>` : Sync.state === 'syncing' ? ' Envoi en cours…' : ''}</p><div class="grid2"><button class="btn" data-act="sync-now">${ico('repeat')} Synchroniser</button><button class="btn ghost" data-act="reset-step" data-v="phone2">Effacer quand même</button></div></div>`
+        : step === 'phone' || step === 'phone2' ? `<div class="confirm"><p>${wait > 1 ? `Les ${wait} modifications non envoyées seront perdues. ` : wait ? 'La modification non envoyée sera perdue. ' : ''}Effacer les données de ce téléphone ?</p><div class="grid2"><button class="btn ghost" data-act="reset-step" data-v="">Annuler</button><button class="btn red" data-act="reset-phone">Effacer</button></div></div>`
         : `<button class="btn ghost block" data-act="reset-step" data-v="phone">${ico('trash')} Effacer ce téléphone</button>`}
     </section>
   </div>`,
@@ -1496,7 +1601,7 @@ function syncSection() {
   if (configured && code) {
     h += `<div style="display:grid;gap:12px"><div class="code-box">${esc(code)}</div><div class="qr">${qrSvg(joinLink())}</div><p class="muted" style="text-align:center;margin:0;font-size:13.5px">Les autres pompiers scannent ce QR code avec l'appareil photo de leur téléphone : l'app s'ouvre déjà reliée à l'équipe.</p>
       <div class="grid2"><button class="btn ghost" data-act="share-link">${ico('link')} Partager le lien</button><button class="btn ghost" data-act="sync-now">${ico('repeat')} Synchroniser</button></div>
-      ${Sync.sheet ? `<a class="btn ghost" href="${esc(Sync.sheet)}" target="_blank" rel="noopener">${ico('grid')} Ouvrir la feuille Google</a>` : ''}
+      ${/^https:\/\/docs\.google\.com\//.test(Sync.sheet) ? `<a class="btn ghost" href="${esc(Sync.sheet)}" target="_blank" rel="noopener">${ico('grid')} Ouvrir la feuille Google</a>` : ''}
       <div class="set-row" style="border:0;padding-bottom:0"><div class="t"><b>${Sync.pending ? `${Sync.pending} modification${Sync.pending > 1 ? 's' : ''} en attente d'envoi` : 'Tout est envoyé'}</b><small>${Sync.lastOk ? 'Dernière synchro à ' + hhmm(Sync.lastOk) : 'Pas encore synchronisé'}${Sync.err ? ' · ' + esc(Sync.err) : ''}</small></div></div></div>`;
   }
   h += `<details class="more" style="margin-top:12px"><summary>Rejoindre une équipe existante</summary><div><form data-form="join" style="display:grid;gap:10px"><input class="input" name="url" placeholder="Adresse de la feuille (…/exec)" value="${esc(Sync.url())}" autocomplete="off" aria-label="Adresse du script Google"><input class="input" name="code" placeholder="SEP-XXXX-XXXX" autocomplete="off" autocapitalize="characters" aria-label="Code d'équipe"><button class="btn" type="submit">Rejoindre</button></form><p class="muted" style="margin:0;font-size:13px">Plus simple : scannez le QR code du chef d'équipe.</p></div></details>`;
@@ -1554,6 +1659,21 @@ function openZoneEditor(z) {
   const coms = comsOf([...ZE.addrs]); if (coms.length === 1) ZE.com = coms[0];
   Sheet.close(); Page.open('zone');
 }
+/** Une rue dans un sélecteur de secteur : la cocher en entier, ou l'ouvrir pour choisir un côté ou des maisons. */
+function streetPickRow(st, { sel, zi, color, zid, open, p, showCom }) {
+  const inZ = st.addrs.filter((a) => sel.has(a.id)).length, tot = st.addrs.length;
+  const others = {};
+  for (const a of st.addrs) if (!sel.has(a.id)) { const o = zi.get(a.id); if (o && o !== zid) others[o] = (others[o] || 0) + 1; }
+  const free = st.addrs.filter((a) => !sel.has(a.id) && (!zi.get(a.id) || zi.get(a.id) === zid)).length;
+  const state = inZ === tot ? 'all' : inZ ? 'some' : 'none';
+  const isOpen = open.has(st.sk);
+  return `<div class="zs-row" data-state="${state}">
+    <button class="zs-check" data-act="${p}-street" data-v="${esc(st.sk)}" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${state === 'all' ? 'Retirer' : 'Ajouter'} toute la rue ${esc(st.name)}" style="--c:${color}">${state === 'all' ? ico('check', 'sm') : state === 'some' ? ico('minus', 'sm') : ''}</button>
+    <button class="zs-name" data-act="${p}-open" data-v="${esc(st.sk)}" aria-expanded="${isOpen}"><span><b>${esc(st.name)}</b><small>${showCom ? esc(st.com) + ' · ' : ''}${inZ}/${tot} adresses${Object.entries(others).map(([o, n]) => ` · <span class="zdot" style="--c:${Store.s.zones[o]?.color}"></span>${n} dans ${esc(Store.s.zones[o]?.name || '?')}`).join('')}${free && !inZ ? ` · <b class="free">${free} sans secteur</b>` : ''}</small></span>${ico(isOpen ? 'minus' : 'plus', 'sm')}</button>
+  </div>
+  ${isOpen ? `<div class="zs-doors"><div class="chips wrap">${[['all', 'Toute la rue'], ['odd', 'Côté impair'], ['even', 'Côté pair'], ['none', 'Aucune']].map(([m, l]) => `<button class="chip" data-act="${p}-quick" data-v="${esc(st.sk)}" data-m="${m}">${l}</button>`).join('')}</div>
+    <div class="doors">${st.addrs.map((a) => { const w = sel.has(a.id) ? 'on' : zi.get(a.id) && zi.get(a.id) !== zid ? 'other' : 'free'; const oc = w === 'other' ? Store.s.zones[zi.get(a.id)]?.color : color; const nU = unitsOf(a.id).length; return `<button class="zt ${w}" style="--c:${oc}" data-act="${p}-addr" data-id="${a.id}" aria-pressed="${w === 'on'}" aria-label="${esc(a.num)} ${esc(st.name)}">${esc(a.num)}${nU > 1 ? `<small>${nU} logts</small>` : ''}</button>`; }).join('')}</div></div>` : ''}`;
+}
 PAGES.zone = () => {
   if (!ZE) return { title: 'Secteur', body: '' };
   const zi = zoneIndex(), q = norm(ZE.q), sel = ZE.addrs;
@@ -1562,20 +1682,7 @@ PAGES.zone = () => {
   const counts = { '': streets().length };
   for (const st of streets()) counts[st.com] = (counts[st.com] || 0) + 1;
   const list = streets().filter((st) => (!ZE.com || st.com === ZE.com) && (!q || norm(st.name + ' ' + st.com).includes(q)) && (!ZE.only || st.addrs.some((a) => sel.has(a.id))));
-  const row = (st) => {
-    const inZ = st.addrs.filter((a) => sel.has(a.id)).length, tot = st.addrs.length;
-    const others = {};
-    for (const a of st.addrs) if (!sel.has(a.id)) { const o = zi.get(a.id); if (o && o !== ZE.id) others[o] = (others[o] || 0) + 1; }
-    const free = st.addrs.filter((a) => !sel.has(a.id) && (!zi.get(a.id) || zi.get(a.id) === ZE.id)).length;
-    const state = inZ === tot ? 'all' : inZ ? 'some' : 'none';
-    const open = ZE.open.has(st.sk);
-    return `<div class="zs-row" data-state="${state}">
-      <button class="zs-check" data-act="ze-street" data-v="${esc(st.sk)}" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${state === 'all' ? 'Retirer' : 'Ajouter'} toute la rue ${esc(st.name)}" style="--c:${ZE.color}">${state === 'all' ? ico('check', 'sm') : state === 'some' ? ico('minus', 'sm') : ''}</button>
-      <button class="zs-name" data-act="ze-open" data-v="${esc(st.sk)}" aria-expanded="${open}"><span><b>${esc(st.name)}</b><small>${ZE.com ? '' : esc(st.com) + ' · '}${inZ}/${tot} adresses${Object.entries(others).map(([o, n]) => ` · <span class="zdot" style="--c:${Store.s.zones[o]?.color}"></span>${n} dans ${esc(Store.s.zones[o]?.name || '?')}`).join('')}${free && !inZ ? ` · <b class="free">${free} sans secteur</b>` : ''}</small></span>${ico(open ? 'minus' : 'plus', 'sm')}</button>
-    </div>
-    ${open ? `<div class="zs-doors"><div class="chips wrap">${[['all', 'Toute la rue'], ['odd', 'Côté impair'], ['even', 'Côté pair'], ['none', 'Aucune']].map(([m, l]) => `<button class="chip" data-act="ze-quick" data-v="${esc(st.sk)}" data-m="${m}">${l}</button>`).join('')}</div>
-      <div class="doors">${st.addrs.map((a) => { const o = sel.has(a.id) ? 'on' : zi.get(a.id) && zi.get(a.id) !== ZE.id ? 'other' : 'free'; const oc = o === 'other' ? Store.s.zones[zi.get(a.id)]?.color : ZE.color; const nU = unitsOf(a.id).length; return `<button class="zt ${o}" style="--c:${oc}" data-act="ze-addr" data-id="${a.id}" aria-pressed="${o === 'on'}" aria-label="${esc(a.num)} ${esc(st.name)}">${esc(a.num)}${nU > 1 ? `<small>${nU} logts</small>` : ''}</button>`; }).join('')}</div></div>` : ''}`;
-  };
+  const row = (st) => streetPickRow(st, { sel, zi, color: ZE.color, zid: ZE.id, open: ZE.open, p: 'ze', showCom: !ZE.com });
   return {
     title: ZE.id ? ZE.name || 'Secteur' : 'Nouveau secteur',
     body: `<div class="stackv">
@@ -1595,6 +1702,104 @@ PAGES.zone = () => {
       ${ZE.id ? (ZE.confirm ? `<div class="confirm"><p>Supprimer « ${esc(ZE.name)} » ? Ses adresses redeviennent sans secteur ; les passages sont conservés.</p><div class="grid2"><button class="btn ghost" data-act="ze-del-no">Garder</button><button class="btn red" data-act="ze-del-yes">Supprimer</button></div></div>` : '<button class="link danger" data-act="ze-del" style="justify-self:start">Supprimer ce secteur</button>') : ''}
     </div>`,
     foot: `<button class="btn ghost" data-act="page-close">Annuler</button><button class="btn block" data-act="ze-save" ${sel.size ? '' : 'disabled'}>${sel.size ? `Enregistrer · ${sel.size} adresses` : 'Choisissez des rues'}</button>`,
+  };
+};
+// ───────── Préparer les secteurs : un secteur, ses rues, son code d'équipe (confortable sur ordinateur)
+let PZ = { zid: '', com: '', q: '', open: new Set(), del: false };
+const pzZone = () => { const z = Store.s.zones[PZ.zid]; return z && !z.del ? z : null; };
+const pzPut = (patch) => { const z = pzZone(); if (z && Role.admin) Store.put('zone', z.id, { ...z, ...patch }); };
+function prepRows() {
+  const z = pzZone(), zi = zoneIndex(), sel = new Set(z ? z.addrs || [] : []), q = norm(PZ.q);
+  const list = streets().filter((st) => (!PZ.com || st.com === PZ.com) && (!q || norm(st.name + ' ' + st.com).includes(q)));
+  if (!list.length) return '<div class="empty">Aucune rue ne correspond.</div>';
+  return list.map((st) => streetPickRow(st, { sel, zi, color: z ? z.color : ZONE_COLORS[0], zid: z ? z.id : '', open: PZ.open, p: 'pz', showCom: !PZ.com })).join('');
+}
+PAGES.prep = () => {
+  if (!Role.admin) return { title: 'Préparer les secteurs', body: '<div class="card empty"><b>Réservé au responsable</b><span>Les secteurs se préparent depuis l’accès responsable.</span></div>' };
+  const zs = zones(), S = stats(), z = pzZone() || zs[0] || null; // le secteur choisi, ou le premier s'il a été supprimé ailleurs
+  PZ.zid = z ? z.id : '';
+  const counts = { '': streets().length };
+  for (const st of streets()) counts[st.com] = (counts[st.com] || 0) + 1;
+  const miss = unassigned().length;
+  const rail = `<aside class="prep-rail">
+    <div class="pr-head"><b>Secteurs</b><span class="muted">${zs.length}</span></div>
+    <div class="pr-list">${zs.map((x) => { const g = S.byZone[x.id] || { total: 0 }; return `<button class="pr-item" data-act="pz-pick" data-v="${x.id}" aria-current="${x.id === PZ.zid ? 'true' : 'false'}"><span class="zdot" style="--c:${x.color}"></span><span class="pr-t"><b>${esc(x.name)}</b><small>${(() => { const n = zonesStreets([x]).length; return `${n} rue${n > 1 ? 's' : ''}`; })()} · ${nf(g.total)} foyer${g.total > 1 ? 's' : ''}</small></span><span class="pr-code">${x.code ? esc(x.code) : '—'}</span></button>`; }).join('') || '<p class="muted" style="margin:0;padding:14px">Aucun secteur pour l’instant.</p>'}</div>
+    <div class="pr-foot">
+      <button class="btn block" data-act="pz-new">${ico('plus')} Nouveau secteur</button>
+      <button class="btn ghost block" data-act="page" data-v="codes">${ico('grid')} Codes à distribuer</button>
+      ${miss ? `<button class="link" data-act="page" data-v="unassigned">${miss} adresse${miss > 1 ? 's' : ''} sans secteur</button>` : '<p class="muted" style="margin:0;font-size:12.5px">Toutes les adresses sont rangées dans un secteur.</p>'}
+    </div>
+  </aside>`;
+  const g = z ? S.byZone[z.id] || { total: 0, visited: 0 } : null;
+  const main = !z ? `<div class="prep-main"><section class="card"><div class="empty"><b>Créez le premier secteur</b><span>Donnez-lui un nom, par exemple « Mooslargue nord », puis cochez ses rues. L’app lui donne un code à 4 chiffres : c’est ce code que son équipe saisira.</span><button class="btn" data-act="pz-new">${ico('plus')} Nouveau secteur</button></div></section>
+    <section class="card"><div class="card-h"><h2>Ou partir d’un découpage tout fait</h2><span class="muted">à ajuster ensuite</span></div>
+      <div class="grid2"><button class="btn ghost" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button><button class="btn ghost" data-act="auto-go">${UI.autoN || 6} secteurs équilibrés</button></div>
+    </section></div>`
+  : `<div class="prep-main">
+    <section class="card pz-top" style="--c:${z.color}">
+      <div class="pz-id">
+        <div class="field"><label for="pz-name">Nom du secteur</label><input id="pz-name" class="input" data-change="pz-name" value="${esc(z.name)}" autocomplete="off" placeholder="Mooslargue nord"></div>
+        <div class="field"><span class="lbl">Couleur sur la carte</span><div class="swatches">${ZONE_COLORS.map((c) => `<button style="--c:${c}" data-act="pz-color" data-v="${c}" aria-pressed="${z.color === c}" aria-label="Couleur ${c}"></button>`).join('')}</div></div>
+      </div>
+      <div class="pz-code">
+        <small class="lbl">Code de ce secteur</small>
+        <div class="code-box">${z.code ? esc(z.code) : '— — — —'}</div>
+        ${z.code ? `<details class="more"><summary>Changer le code</summary><div><p class="muted" style="margin:0 0 10px;font-size:13px">Les téléphones qui ont déjà saisi ${esc(z.code)} ne verraient plus leurs rues : à ne faire qu’avant de distribuer les billets.</p><button class="btn ghost sm" data-act="pz-code">Nouveau code</button></div></details>`
+          : `<button class="btn sm" data-act="pz-code">Donner un code</button>`}
+      </div>
+    </section>
+    <div class="kpis">
+      <div class="kpi card"><b>${zonesStreets([z]).length}</b><span>rues</span></div>
+      <div class="kpi card"><b>${nf(g.total)}</b><span>foyers</span></div>
+      <div class="kpi card"><b>${(z.addrs || []).length}</b><span>adresses</span></div>
+      <div class="kpi card"><b>${pct(g.visited, g.total)} %</b><span>faits</span></div>
+    </div>
+    <section class="card">
+      <div class="card-h"><h2>Qui fait ce secteur</h2><span class="muted">facultatif</span></div>
+      ${members().length ? `<div class="chips wrap">${memberChips('pz-member', z.members || [])}</div>` : '<p class="muted" style="margin:0 0 12px">Pas encore de prénoms. Chaque équipe peut aussi se nommer elle-même sur son téléphone.</p>'}
+      <details class="more" style="margin-top:14px"><summary>Ajouter des prénoms</summary><div>${addMemberForm()}<p class="muted" style="margin:8px 0 0;font-size:13px">Un prénom par ligne.</p></div></details>
+    </section>
+    <div class="lbl">Cochez les rues de ce secteur · ouvrez une rue pour n’en prendre qu’un côté ou quelques maisons</div>
+    ${comChips('pz-com', PZ.com, counts)}
+    <div class="input-ico">${ico('search')}<input id="pz-q" class="input" type="search" placeholder="Chercher une rue" value="${esc(PZ.q)}" autocomplete="off" aria-label="Chercher une rue"></div>
+    <div class="zs-list" id="pz-list">${prepRows()}</div>
+    ${PZ.del ? `<div class="confirm"><p>Supprimer « ${esc(z.name)} » ? Ses rues redeviennent sans secteur, les passages sont conservés.</p><div class="grid2"><button class="btn ghost" data-act="pz-del-no">Garder</button><button class="btn red" data-act="pz-del-yes">Supprimer</button></div></div>`
+      : '<button class="link danger" data-act="pz-del" style="justify-self:start">Supprimer ce secteur</button>'}
+  </div>`;
+  return { title: 'Préparer les secteurs', body: `<div class="prep">${rail}${main}</div>` };
+};
+/** Un billet par secteur : QR code de l'équipe + code du secteur, à imprimer et à donner. */
+PAGES.codes = () => {
+  const zs = zones(), S = stats(), miss = zs.filter((z) => !z.code).length;
+  const card = (z) => {
+    const g = S.byZone[z.id] || { total: 0 };
+    const byCom = new Map();
+    const sts = zonesStreets([z]), nStreets = sts.length;
+    for (const st of sts) { if (!byCom.has(st.com)) byCom.set(st.com, []); byCom.get(st.com).push(st.name); }
+    return `<section class="code-card">
+      <div class="cc-top"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="muted">${nf(g.total)} foyer${g.total > 1 ? 's' : ''} · ${nStreets} rue${nStreets > 1 ? 's' : ''}</span></div>
+      <div class="cc-mid">
+        <div class="cc-code"><small class="lbl">Code du secteur</small><div class="code-box">${z.code ? esc(z.code) : '— — — —'}</div><small class="muted">${(z.members || []).length ? esc(names(z.members)) : 'équipe à désigner'}</small></div>
+        ${Sync.code && z.code ? `<div class="qr">${qrSvg(joinLink(z.code))}</div>` : ''}
+      </div>
+      <p class="cc-how">${!z.code ? 'Ce secteur n’a pas encore de code : touchez « Donner un code » en haut de cette page, puis réimprimez.'
+        : !Sync.code ? 'Reliez d’abord l’équipe à la feuille (Réglages › Équipe connectée), puis revenez imprimer ce billet.'
+        : `Scannez le QR code avec l’appareil photo du téléphone : l’app s’ouvre déjà reliée à l’équipe et au secteur. Sinon, scannez le QR code de l’équipe et saisissez <b>${esc(z.code)}</b>.`}</p>
+      ${[...byCom].map(([com, l]) => `<p class="cc-st"><b>${esc(com)}</b> : ${esc(l.join(', '))}</p>`).join('') || '<p class="cc-st muted">Aucune rue dans ce secteur pour l’instant.</p>'}
+    </section>`;
+  };
+  return {
+    title: 'Codes des secteurs',
+    body: `<div class="codes">
+      <div class="no-print stackv" style="margin-bottom:18px">
+        <div class="note-box">Un billet par secteur. Le QR code ouvre l’app déjà reliée à l’équipe ; le code à 4 chiffres donne les rues du secteur, et rien d’autre. Imprimez, découpez, et donnez à chaque équipe le billet de son secteur.</div>
+        ${!Sync.code ? '<div class="note-box"><b>L’équipe n’est pas encore reliée à la feuille.</b> Les QR codes apparaîtront après « Créer le code de l’équipe », dans Réglages › Équipe connectée.</div>' : ''}
+        ${dupCodes().length ? `<div class="note-box"><b>Le code ${esc(dupCodes().join(', '))} sert à deux secteurs.</b> Ouvrez « Préparer les secteurs » et donnez un nouveau code à l’un des deux : sans cela, leurs équipes ne verront rien.</div>` : ''}
+        ${miss ? `<button class="btn block" data-act="codes-gen">${ico('plus')} ${miss > 1 ? `Donner un code aux ${miss} secteurs qui n’en ont pas` : 'Donner un code au secteur qui n’en a pas'}</button>` : ''}
+        <div class="grid2"><button class="btn" data-act="print">${ico('grid')} Imprimer les billets</button><button class="btn ghost" data-act="page" data-v="prep">${ico('pen')} Modifier les secteurs</button></div>
+      </div>
+      ${zs.length ? zs.map(card).join('') : '<div class="card empty"><b>Aucun secteur</b><span>Créez les secteurs, puis revenez ici pour imprimer les billets.</span><button class="btn" data-act="page" data-v="prep">Préparer les secteurs</button></div>'}
+    </div>`,
   };
 };
 PAGES.unassigned = () => {
@@ -1648,11 +1853,27 @@ PAGES.welcome = (args) => {
     <p>Le plus simple : scannez le QR code du responsable avec l'appareil photo. Sinon, saisissez ${Sync.configured ? 'le code de l’équipe' : 'l’adresse de la feuille et le code de l’équipe'}.</p>
     <form data-form="join" style="display:grid;gap:12px">${Sync.configured ? `<input type="hidden" name="url" value="${esc(Sync.url())}">` : '<input class="input" name="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" aria-label="Adresse de la feuille">'}<input class="input code-input" name="code" placeholder="SEP-XXXX-XXXX" autocapitalize="characters" autocomplete="off" aria-label="Code d'équipe" required><button class="btn red block" type="submit">Rejoindre</button></form>
   </div>` };
+  if (step === 'secteur') {
+    const needTeam = Sync.configured && !Sync.code && !Store.demoOn;
+    const z = Sector.zone;
+    return { bare: true, body: `<div class="welcome left">
+      ${back('intro')}
+      <h1 class="w-title sm">Votre secteur</h1>
+      ${needTeam ? `<p>D’abord, reliez ce téléphone à l’équipe : scannez le QR code du billet avec l’appareil photo du téléphone.</p>
+        <button class="btn red block" data-act="w-step" data-v="join">${ico('link')} J’ai le code de l’équipe</button>
+        <button class="link" data-act="w-step" data-v="who">Continuer sans code (choisir mon prénom)</button>`
+      : `<p>Saisissez le code à 4 chiffres inscrit sur le billet du responsable. Vous verrez les rues de votre secteur, et seulement celles-là.</p>
+        <form data-form="sector" style="display:grid;gap:12px"><input class="input code-input" name="code" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" aria-label="Code du secteur" required><button class="btn red block" type="submit">Voir mes rues</button></form>
+        ${z ? `<div class="note-box">Ce téléphone suit déjà <b>${esc(z.name)}</b> · ${zonesStreets([z]).length} rue${zonesStreets([z]).length > 1 ? 's' : ''}.</div><button class="btn ghost block" data-act="w-step" data-v="who">Continuer avec ${esc(z.name)}</button>` : ''}
+        ${!zones().length && Sync.code ? `<div class="note-box">Les secteurs ne sont pas encore arrivés sur ce téléphone.${Sync.state === 'offline' ? ' <b>Pas de réseau pour l’instant</b> : réessayez dès que le téléphone capte.' : Sync.state === 'error' ? ` <b>${esc(Sync.err)}</b>` : Sync.state === 'syncing' ? ' Réception en cours…' : ''}<br><button class="btn ghost sm" style="margin-top:10px" data-act="sync-now">${ico('repeat')} Synchroniser</button></div>` : ''}
+        <button class="link" data-act="w-step" data-v="who">Je n’ai pas de code : choisir mon prénom</button>`}
+    </div>` };
+  }
   if (step === 'who') return { bare: true, body: `<div class="welcome left">
     <h1 class="w-title sm">Qui êtes-vous ?</h1>
-    <p>Touchez votre prénom et celui des personnes qui tournent avec vous. Vous pouvez être 2 ou 3.</p>
+    <p>Touchez votre prénom et celui des personnes qui tournent avec vous. Vous pouvez être 2 ou 3.${Sector.zone ? ` Secteur <b>${esc(Sector.zone.name)}</b>.` : ''}</p>
     ${Sync.configured && !Sync.code && !Store.demoOn ? `<div class="note-box"><b>D’abord, reliez ce téléphone à l’équipe :</b> scannez le QR code du responsable avec l’appareil photo. Vos prénoms et vos rues arriveront ensuite tout seuls.</div><button class="btn ghost block" data-act="w-step" data-v="join">${ico('link')} J’ai le code de l’équipe</button>`
-      : members().length ? meBlock() : '<div class="note-box">La liste des pompiers n’est pas encore faite. Le responsable l’ajoute depuis l’onglet Répartition ; elle arrivera ensuite toute seule sur ce téléphone.</div>'}
+      : members().length || Sector.zone ? meBlock() : '<div class="note-box">La liste des pompiers n’est pas encore faite. Le responsable l’ajoute depuis l’onglet Répartition ; elle arrivera ensuite toute seule sur ce téléphone.</div>'}
     <button class="btn red block" data-act="w-done">${Me.team().length ? 'C’est parti' : 'Continuer'}</button>
   </div>` };
   return { bare: true, body: `<div class="welcome">
@@ -1662,7 +1883,7 @@ PAGES.welcome = (args) => {
     <p>Les ${nf(BASE_ADDRS.length)} adresses du secteur sont déjà chargées : ${COMMUNES.join(', ')}. Le responsable répartit les rues, chaque équipe suit les siennes, même sans réseau.</p>
     <div class="w-facts"><span>${COMMUNES.length} communes</span><span>${streets().length} rues</span><span>${nf(BASE_ADDRS.length)} adresses</span><span>Hors ligne</span></div>
     <div class="w-actions">
-      <button class="btn red block" data-act="w-step" data-v="who">${ico('door')} Je distribue</button>
+      <button class="btn red block" data-act="w-step" data-v="secteur">${ico('door')} Je distribue</button>
       <button class="btn ghost block" data-act="w-step" data-v="join">${ico('link')} J'ai un code d'équipe</button>
       <button class="btn ghost block" data-act="w-step" data-v="code">${ico('gear')} Je suis le responsable</button>
       <button class="link" data-act="w-demo">Découvrir avec des données de démo</button>
@@ -2044,14 +2265,15 @@ const MapView = {
 function exportCSV() {
   const s = Store.s, zi = zoneIndex();
   const head = ['Commune', 'Rue', 'Numéro', 'Logement', 'Statut', 'Fait par', 'Date du passage', 'Repasse le', 'Créneau', 'Consigne', 'Occupant', 'Note', 'Secteur', 'Équipe'];
-  const rows = [...units()].sort((x, y) => x.a.ci - y.a.ci || sortKey(x.a.street).localeCompare(sortKey(y.a.street), 'fr') || numCmp(x.a, y.a) || x.k - y.k).map((u) => {
+  const rows = [...units()].filter((u) => visibleAddr(u.a)).sort((x, y) => x.a.ci - y.a.ci || sortKey(x.a.street).localeCompare(sortKey(y.a.street), 'fr') || numCmp(x.a, y.a) || x.k - y.k).map((u) => {
     const a = u.a, p = pass(u.id) || {}, st = p.status || 'todo', zid = zi.get(a.id), z = zid ? s.zones[zid] : null;
     return [a.com, a.street, a.num, u.label, STATUS[st].label, names(p.by), p.at && st !== 'todo' ? new Date(p.at).toLocaleString('fr-FR') : '',
       p.rp?.date || '', SLOTS[p.rp?.slot] || '', p.rp?.note || '', p.name || '', p.note || '', z ? z.name : '', z ? names(z.members) : ''];
   });
   const S = stats();
   rows.push([], ['Foyers', S.total], ['Faits', S.visited], ...ST_FILTER.map((k) => [STATUS[k].label, S.st[k]]));
-  const csv = '﻿' + [head, ...rows].map((r) => r.map((v) => { const t = String(v ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; }).join(';')).join('\r\n');
+  // Un texte qui commence par = + - @ deviendrait une formule dans Excel : on le neutralise, comme la feuille Google
+  const csv = '﻿' + [head, ...rows].map((r) => r.map((v) => { const t0 = String(v ?? ''), t = /^[=+\-@\t\r]/.test(t0) ? "'" + t0 : t0; return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; }).join(';')).join('\r\n');
   download(`calendriers-${s.settings.year || ''}-${isoDay()}.csv`, csv, 'text/csv;charset=utf-8');
 }
 function exportJSON() {
@@ -2066,11 +2288,13 @@ function importJSON(file) {
       if (!d || typeof d.passages !== 'object') throw new Error('format');
       if (Store.demoOn) Store.exitDemo();
       const items = []; let n = 0;
-      for (const [kind, col] of Object.entries(KIND_COL)) for (const [id, rec] of Object.entries(d[col] || {})) {
-        const cur = Store.live[col][id];
+      for (const [kind, col] of Object.entries(KIND_COL)) for (const [id, raw] of Object.entries(d[col] || {})) {
+        const rec = clean(kind, id, raw), cur = Store.live[col][id];
+        if (!rec) continue;
         if (!cur || (cur.u || 0) < (rec.u || 0)) { Store.live[col][id] = rec; items.push({ kind, id, data: rec, updated_at: rec.u || Date.now(), deleted: !!rec.del }); n++; }
       }
-      if (d.settings && (d.settings.u || 0) > (Store.live.settings.u || 0)) { Store.live.settings = d.settings; items.push({ kind: 'settings', id: 'main', data: d.settings, updated_at: d.settings.u, deleted: false }); }
+      const set = clean('settings', 'main', d.settings);
+      if (set && set.u > (Store.live.settings.u || 0)) { Store.live.settings = set; items.push({ kind: 'settings', id: 'main', data: set, updated_at: set.u, deleted: false }); }
       Store.rev++; Store.save(); if (items.length) Sync.enqueueMany(items);
       LS.set(K.welcomed, true); if (Page.cur === 'welcome') Page.close();
       App.changed(); toast(`${n} élément${n > 1 ? 's' : ''} restauré${n > 1 ? 's' : ''}.`);
@@ -2161,9 +2385,12 @@ function maybeWelcome() {
 }
 function joinTeam(url, code) {
   if (Store.demoOn) Store.exitDemo();
+  const c = code.trim().toUpperCase();
   if (url) setSheetUrl(url);
   if (!Sync.configured) { toast("L'adresse de la feuille est incorrecte : elle commence par https://script.google.com/"); return false; }
-  setCode(code.trim().toUpperCase());
+  // Rouvrir l'app par le même QR code ne doit rien effacer : c'est la même équipe
+  if (c === Sync.code) { LS.set(K.welcomed, true); Sync.start(); return true; }
+  setCode(c);
   LS.set(K.welcomed, true);
   return true;
 }
@@ -2271,6 +2498,42 @@ const A = {
     ZE = null; Page.close();
     toast(`${isNew ? 'Secteur créé' : 'Secteur enregistré'} : ${name}${moved ? ` · ${moved} adresse${moved > 1 ? 's' : ''} déplacée${moved > 1 ? 's' : ''} depuis un autre secteur` : ''}`);
   },
+  // Préparation des secteurs : chaque geste est enregistré tout de suite
+  'pz-pick': (el) => { PZ.zid = el.dataset.v; PZ.del = false; PZ.open = new Set(); Page.render(true); },
+  'pz-new': () => {
+    if (!Role.admin) return;
+    const zs = zones(), id = uid('z');
+    saveZone({ id, name: `Secteur ${zs.length + 1}`, color: ZONE_COLORS[zs.length % ZONE_COLORS.length], members: [], addrs: [], order: zs.length });
+    PZ.zid = id; PZ.del = false; PZ.open = new Set();
+    if (Page.cur !== 'prep') Page.open('prep'); else Page.render(true);
+    requestAnimationFrame(() => $('#pz-name')?.select());
+  },
+  'pz-color': (el) => pzPut({ color: el.dataset.v }),
+  'pz-code': () => { const z = pzZone(); if (z) { const c = newZoneCode(); pzPut({ code: c }); toast(`Code du secteur ${z.name} : ${c}`); } },
+  'pz-member': (el) => { const z = pzZone(); if (!z) return; const v = el.dataset.v, cur = z.members || []; pzPut({ members: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] }); },
+  'pz-street': (el) => {
+    const z = pzZone(), st = streetOf(el.dataset.v); if (!z || !st || !Role.admin) return;
+    const mine = new Set(z.addrs || []), all = st.addrs.every((a) => mine.has(a.id)), zi = zoneIndex();
+    const taken = all ? [] : [...new Set(st.addrs.map((a) => zi.get(a.id)).filter((x) => x && x !== z.id))].map((x) => Store.s.zones[x]?.name).filter(Boolean);
+    assignStreetToZone(st.sk, all ? '' : z.id);
+    toast(all ? `${st.name} retirée de ${z.name} : ${st.addrs.length} adresses sans secteur.`
+      : `${st.name} · ${st.addrs.length} adresses dans ${z.name}${taken.length ? `, reprises à ${taken.join(', ')}` : ''}.`);
+  },
+  'pz-quick': (el) => {
+    const z = pzZone(), st = streetOf(el.dataset.v), m = el.dataset.m; if (!z || !st || !Role.admin) return;
+    const keep = new Set((z.addrs || []).filter((id) => !st.addrs.some((a) => a.id === id)));
+    for (const a of st.addrs) if (m === 'all' || (m === 'odd' && !a.even) || (m === 'even' && a.even)) keep.add(a.id);
+    saveZone({ ...z, addrs: [...keep] });
+  },
+  'pz-addr': (el) => { const z = pzZone(), id = el.dataset.id; if (!z || !Role.admin) return; if ((z.addrs || []).includes(id)) { Store.put('zone', z.id, { ...z, addrs: z.addrs.filter((x) => x !== id) }); pruneAutoZones(); } else moveAddrToZone(id, z.id); },
+  'pz-open': (el) => { const k = el.dataset.v; PZ.open.has(k) ? PZ.open.delete(k) : PZ.open.add(k); $('#pz-list').innerHTML = prepRows(); },
+  'pz-com': (el) => { PZ.com = el.dataset.v; Page.render(false); },
+  'pz-del': () => { PZ.del = true; Page.render(false); },
+  'pz-del-no': () => { PZ.del = false; Page.render(false); },
+  'pz-del-yes': () => { const z = pzZone(); if (!z || !Role.admin) return; Store.put('zone', z.id, { ...z, del: true }); PZ = { ...PZ, zid: '', del: false, open: new Set() }; Page.render(true); toast(`Secteur ${z.name} supprimé.`); },
+  'codes-gen': () => { if (!Role.admin) return; let n = 0; for (const z of zones()) if (!z.code) { Store.put('zone', z.id, { ...z, code: newZoneCode() }); n++; } toast(`${n} code${n > 1 ? 's' : ''} créé${n > 1 ? 's' : ''}.`); },
+  print: () => window.print(),
+  'sector-clear': () => { Sector.clear(); toast('Secteur retiré de ce téléphone.'); },
   'auto-open': () => { UI.auto = !UI.auto; UI.autoN = UI.autoN || 6; App.changed(); },
   'auto-n': (el) => { UI.autoN = clamp((UI.autoN || 6) + +el.dataset.v, 2, 12); saveUI(); if (Page.cur) Page.render(false); App.changed(); },
   'auto-com': () => { replaceZones(COMMUNES.map((c) => addrs().filter((a) => a.com === c).map((a) => a.id)), (ids, i) => COMMUNES[i]); UI.auto = false; App.changed(); toast(`${COMMUNES.length} secteurs créés, un par commune. Affectez une équipe à chacun.`); },
@@ -2278,8 +2541,8 @@ const A = {
   'unassigned-map': () => { UI.zone = '__none'; UI.filter = 'all'; UI.mapMode = 'map'; saveUI(); Page.close(); go('map'); },
   'unassigned-new': () => { ZE = newZE(); unassigned().forEach((a) => ZE.addrs.add(a.id)); ZE.only = true; Page.open('zone'); },
   'export-csv': () => exportCSV(),
-  'export-json': () => exportJSON(),
-  'import-json': () => $('#import-file').click(),
+  'export-json': () => { if (Role.admin) exportJSON(); },
+  'import-json': () => { if (Role.admin) $('#import-file').click(); },
   'reset-step': (el) => Page.set({ step: el.dataset.v }),
   'reset-campaign': () => {
     if (Store.demoOn) { toast('En mode démo, rien à remettre à zéro.'); return; }
@@ -2334,6 +2597,32 @@ const FORMS = {
     if (!joinTeam(f.elements.url.value, c)) return;
     if (Page.cur === 'welcome') Page.set({ step: 'who' }); else { Page.refresh(); toast('Équipe rejointe.'); }
   },
+  sector: (f) => {
+    const c = String(f.elements.code.value || '').replace(/\D/g, '');
+    if (c.length !== 4) { toast('Le code du secteur est un nombre à 4 chiffres (sur le billet du responsable).'); return; }
+    const z = zoneByCode(c);
+    if (!z) {
+      const dup = zones().filter((x) => x.code === c).length > 1;
+      toast(dup ? 'Deux secteurs portent ce code : demandez au responsable de le corriger.'
+        : zones().length ? 'Ce code ne correspond à aucun secteur. Vérifiez auprès du responsable.'
+        : Sync.state === 'offline' ? 'Pas de réseau : les secteurs ne sont pas encore arrivés. Réessayez dès que le téléphone capte.'
+        : 'Les secteurs ne sont pas encore arrivés sur ce téléphone : touchez Synchroniser, puis réessayez.');
+      Sync.cycle(); return;
+    }
+    Sector.set(c); LS.set(K.welcomed, true);
+    if (!Role.chosen) Role.set('distrib');
+    f.reset();
+    const nr = zonesStreets([z]).length;
+    toast(`Secteur ${z.name} · ${nr} rue${nr > 1 ? 's' : ''}.`);
+    if (Page.cur === 'welcome') Page.set({ step: 'who' }); else if (Page.cur) Page.refresh();
+  },
+  'me-add': (f) => {
+    const list = f.elements.mname.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+    if (!list.length) return;
+    const ids = list.map((n) => members().find((m) => norm(m.name) === norm(n))?.id || addMember(n));
+    Me.set([...Me.team(), ...ids]); f.reset();
+    // Volontairement, on n'écrit pas dans le secteur : une copie périmée annulerait la répartition du responsable.
+  },
   'sheet-url': async (f) => {
     const url = f.elements.url.value.trim();
     if (!/^https:\/\/script\.google(usercontent)?\.com\/.+/.test(url)) { toast("Adresse incorrecte : copiez l'adresse « Application Web » qui finit par /exec."); return; }
@@ -2342,7 +2631,8 @@ const FORMS = {
       const res = await fetch(url); const j = await res.json();
       if (!j.ok) throw new Error('réponse');
       const moved = url !== Sync.url();
-      setSheetUrl(url); if (j.sheet) { Sync.sheet = j.sheet; LS.set(K.sheet, j.sheet); }
+      setSheetUrl(url);
+      if (moved) { Sync.sheet = ''; LS.del(K.sheet); } // le lien vers la feuille revient avec la première synchro
       if (Sync.code) { if (moved) { Sync.since = 0; LS.del(K.since); Sync.enqueueAll(); } Sync.start(); }
       Page.refresh(); toast(Sync.code ? 'Feuille reliée.' : 'Feuille reliée. Créez maintenant le code de l’équipe.');
     } catch (e) { toast('La feuille ne répond pas. Vérifiez le déploiement : accès « Tout le monde », puis réessayez.'); }
@@ -2369,6 +2659,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'street-q') { UI.q = t.value; $('#addr-hits').innerHTML = addrHits(); $('#street-list').innerHTML = streetRows(); return; }
   if (t.id === 'ze-q' && ZE) { ZE.q = t.value; const pos = t.selectionStart; Page.render(false); const n = $('#ze-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } return; }
   if (t.id === 'ze-name' && ZE) { ZE.name = t.value; return; }
+  if (t.id === 'pz-q') { PZ.q = t.value; $('#pz-list').innerHTML = prepRows(); return; }
   if (t.dataset.bind && AS) {
     const path = t.dataset.bind.split('.');
     if (path.length === 2) AS.d[path[0]][path[1]] = t.value; else AS.d[path[0]] = t.value;
@@ -2379,7 +2670,8 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('change', (e) => {
   const t = e.target, ch = t.dataset.change;
-  if (ch === 'zone') { UI.zone = t.value; saveUI(); App.changed(); }
+  if (ch === 'pz-name') { const z = pzZone(); if (z && Role.admin) Store.put('zone', z.id, { ...z, name: t.value.trim() || 'Secteur' }); }
+  else if (ch === 'zone') { UI.zone = t.value; saveUI(); App.changed(); }
   else if (ch === 'com') { UI.com = t.value; saveUI(); App.changed(); MapView.fit(true); }
   else if (ch === 'sort') { UI.sort = t.value; saveUI(); renderStreets(); }
   else if (ch === 'hist-member') Page.set({ m: t.value });
@@ -2388,6 +2680,7 @@ document.addEventListener('change', (e) => {
     toast(t.value ? `${streetOf(sk)?.name} · ${n} adresse${n > 1 ? 's' : ''} rangée${n > 1 ? 's' : ''} dans ${Store.s.zones[t.value].name}.` : `${streetOf(sk)?.name} retirée de son secteur.`);
   }
   else if (ch === 'addr-zone') {
+    if (!Role.admin) return;
     const id = t.dataset.id, z = t.value;
     if (z) moveAddrToZone(id, z); else { const from = zoneOf(id); if (from) Store.put('zone', from.id, { ...from, addrs: from.addrs.filter((x) => x !== id) }); pruneAutoZones(); }
     toast(z ? `Adresse rangée dans ${Store.s.zones[z].name}.` : 'Adresse retirée de son secteur.');
@@ -2416,7 +2709,8 @@ document.addEventListener('keydown', (e) => {
 
 // ═════════════════════════ Démarrage
 /* Version du format des données. Quand elle change, ce téléphone repart à neuf :
-   le modèle n'est plus compatible avec ce qui était enregistré. */
+   le modèle n'est plus compatible avec ce qui était enregistré. Jamais pendant une campagne :
+   les portes pas encore envoyées seraient perdues. */
 const DATA_VERSION = 3;
 function migrate() {
   const v = LS.get(K.ver, 0);
@@ -2434,15 +2728,19 @@ function boot() {
   Store.init();
   prunePassages();
   const h = new URLSearchParams(location.hash.slice(1));
-  const join = h.get('join');
+  const join = h.get('join'), zcode = String(h.get('z') || '').replace(/\D/g, '');
   if (join) {
     joinTeam(h.get('s') || '', join);
+    if (zcode.length === 4) Sector.set(zcode);
     history.replaceState(null, '', location.pathname + location.search);
   } else Sync.start();
   go(UI.view || 'home');
   maybeWelcome();
   if (!Role.chosen && !Page.cur) Role.set('distrib');
-  if (join && Sync.configured) { toast('Équipe rejointe : indiquez qui vous êtes.'); setTimeout(openMeSheet, 1200); }
+  if (join && Sync.configured) {
+    if (Sector.code) { toast('Équipe rejointe : indiquez qui vous êtes.'); setTimeout(openMeSheet, 1200); }
+    else { toast('Équipe rejointe : saisissez le code de votre secteur.'); Page.open('welcome', { step: 'secteur' }); }
+  }
   else if (wiped) toast('Nouvelle version : l’app est repartie à zéro sur ce téléphone.', { ms: 6000 });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname))) navigator.serviceWorker.register('sw.js').catch(() => {});
   window.addEventListener('online', () => Sync.cycle());
