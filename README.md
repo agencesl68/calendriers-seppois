@@ -7,14 +7,14 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour org
 | | **Responsable** | **Distributeur** |
 | --- | --- | --- |
 | Pour qui | Ceux qui répartissent les rues | Tous ceux qui font les portes |
-| Comment | Code d'accès responsable | QR code, puis le code à 4 chiffres de son secteur |
+| Comment | Code d'accès responsable | Un seul code : celui du billet |
 | Ce qu'il fait | Voit toute la carte en direct, prépare les secteurs, imprime les billets | Voit seulement les rues de son secteur (en rouge) et note à chaque porte « Calendrier donné » ou « À repasser » |
 
 Ouvrir le lien amène toujours sur l'**écran de démarrage** : blason, choix de l'accès, et un bouton **Continuer** quand le téléphone est déjà réglé.
 
 À la première ouverture, le responsable touche **Je suis le responsable** et entre le code d'accès : son téléphone relie alors l'équipe à la feuille Google. L'app propose ensuite une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
 
-Un distributeur scanne le QR code du billet, saisit le **code à 4 chiffres de son secteur**, et il a ses rues. Pour passer responsable : **Réglages › Sur ce téléphone**, puis le code d'accès.
+Un distributeur n'a qu'une chose à faire : **saisir le code du billet**. L'écran de démarrage lui propose « J'ai un code · je distribue », un seul champ, puis la carte de ses rues s'affiche et il part porte après porte (n° 1, n° 2…). S'il scanne le QR code du billet, l'app s'ouvre déjà reliée et il n'a plus que les 4 chiffres à saisir ; sinon il peut taper le code d'équipe `SEP-XXXX-XXXX` du billet dans le même champ. Il ne voit ni la répartition, ni les autres secteurs. Pour passer responsable : **Réglages › Sur ce téléphone**, puis le code d'accès.
 
 ## Préparer les secteurs (sur ordinateur)
 

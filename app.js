@@ -1104,8 +1104,10 @@ function tourSave(status, extra = {}) {
   tourNext(1); App.changed(); tourScrollTop();
 }
 function tourTeamLine() {
-  const team = Me.team();
-  return `<button class="tour-team" data-act="me-sheet">${team.length ? `${avatars(team, 2, 'sm')} Tournée de ${esc(names(team))}` : `${ico('user', 'sm')} Qui fait la tournée ? <u>Choisir</u>`}</button>`;
+  const team = Me.team(), z = Sector.zone;
+  if (team.length) return `<button class="tour-team" data-act="me-sheet">${avatars(team, 2, 'sm')} Tournée de ${esc(names(team))}</button>`;
+  if (z) return `<button class="tour-team" data-act="me-sheet">${ico('door', 'sm')} ${esc(z.name)} · <u>ajouter mon prénom</u></button>`;
+  return `<button class="tour-team" data-act="me-sheet">${ico('user', 'sm')} Qui fait la tournée ? <u>Choisir</u></button>`;
 }
 function renderTour() {
   const el = $('#v-tour'), T = UI.tour;
@@ -1899,15 +1901,12 @@ PAGES.welcome = (args) => {
     const z = Sector.zone;
     return { bare: true, body: `<div class="welcome left">
       ${back('intro')}
-      <h1 class="w-title sm">Votre secteur</h1>
-      ${needTeam ? `<p>D’abord, reliez ce téléphone à l’équipe : scannez le QR code du billet avec l’appareil photo du téléphone.</p>
-        <button class="btn red block" data-act="w-step" data-v="join">${ico('link')} J’ai le code de l’équipe</button>
-        <button class="link" data-act="w-step" data-v="who">Continuer sans code (choisir mon prénom)</button>`
-      : `<p>Saisissez le code à 4 chiffres inscrit sur le billet du responsable. Vous verrez les rues de votre secteur, et seulement celles-là.</p>
-        <form data-form="sector" style="display:grid;gap:12px"><input class="input code-input" name="code" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" aria-label="Code du secteur" required><button class="btn red block" type="submit">Voir mes rues</button></form>
-        ${z ? `<div class="note-box">Ce téléphone suit déjà <b>${esc(z.name)}</b> · ${zonesStreets([z]).length} rue${zonesStreets([z]).length > 1 ? 's' : ''}.</div><button class="btn ghost block" data-act="w-step" data-v="who">Continuer avec ${esc(z.name)}</button>` : ''}
-        ${!zones().length && Sync.code ? `<div class="note-box">Les secteurs ne sont pas encore arrivés sur ce téléphone.${Sync.state === 'offline' ? ' <b>Pas de réseau pour l’instant</b> : réessayez dès que le téléphone capte.' : Sync.state === 'error' ? ` <b>${esc(Sync.err)}</b>` : Sync.state === 'syncing' ? ' Réception en cours…' : ''}<br><button class="btn ghost sm" style="margin-top:10px" data-act="sync-now">${ico('repeat')} Synchroniser</button></div>` : ''}
-        <button class="link" data-act="w-step" data-v="who">Je n’ai pas de code : choisir mon prénom</button>`}
+      <h1 class="w-title sm">Votre code</h1>
+      <p>Saisissez le code inscrit sur le billet que le responsable vous a donné. Vous verrez les rues de votre secteur, et seulement celles-là.</p>
+      <form data-form="sector" style="display:grid;gap:12px"><input class="input code-input" name="code" inputmode="${needTeam ? 'text' : 'numeric'}" autocapitalize="characters" placeholder="${needTeam ? 'SEP-XXXX-XXXX' : '1234'}" autocomplete="off" aria-label="Votre code" required><button class="btn red block" type="submit">${ico('door')} Voir mes rues</button></form>
+      ${needTeam ? '<div class="note-box">Ce téléphone n’est pas encore relié à l’équipe. Le plus simple : <b>scannez le QR code du billet</b> avec l’appareil photo. Sinon, saisissez ici le code d’équipe <b>SEP-XXXX-XXXX</b> inscrit sur le billet, puis le code à 4 chiffres de votre secteur.</div>' : ''}
+      ${z ? `<div class="note-box">Ce téléphone suit déjà <b>${esc(z.name)}</b> · ${pl(zonesStreets([z]).length, 'rue')}.</div><button class="btn ghost block" data-act="w-done">Continuer avec ${esc(z.name)}</button>` : ''}
+      ${!zones().length && Sync.code ? `<div class="note-box">Les secteurs ne sont pas encore arrivés sur ce téléphone.${Sync.state === 'offline' ? ' <b>Pas de réseau pour l’instant</b> : réessayez dès que le téléphone capte.' : Sync.state === 'error' ? ` <b>${esc(Sync.err)}</b>` : Sync.state === 'syncing' ? ' Réception en cours…' : ''}<br><button class="btn ghost sm" style="margin-top:10px" data-act="sync-now">${ico('repeat')} Synchroniser</button></div>` : ''}
     </div>` };
   }
   if (step === 'who') return { bare: true, body: `<div class="welcome left">
@@ -1925,8 +1924,7 @@ PAGES.welcome = (args) => {
     <div class="w-facts"><span>${COMMUNES.length} communes</span><span>${streets().length} rues</span><span>${nf(BASE_ADDRS.length)} adresses</span><span>Hors ligne</span></div>
     <div class="w-actions">
       ${(() => { const r = phoneReady(); return r ? `<button class="btn red block" data-act="w-done">${ico('chev-r')} ${esc(r)}</button>` : ''; })()}
-      <button class="btn ${phoneReady() ? 'ghost' : 'red'} block" data-act="w-step" data-v="secteur">${ico('door')} Je distribue</button>
-      <button class="btn ghost block" data-act="w-step" data-v="join">${ico('link')} J'ai un code d'équipe</button>
+      <button class="btn ${phoneReady() ? 'ghost' : 'red'} block" data-act="w-step" data-v="secteur">${ico('door')} J’ai un code · je distribue</button>
       <button class="btn ghost block" data-act="w-step" data-v="code">${ico('gear')} Je suis le responsable</button>
       ${Store.demoOn ? '<button class="link" data-act="demo-exit">Quitter la démo</button>' : '<button class="link" data-act="w-demo">Découvrir avec des données de démo</button>'}
     </div>
@@ -2762,8 +2760,16 @@ const FORMS = {
     if (Page.cur === 'welcome') Page.set({ step: 'who' }); else { Page.refresh(); toast('Équipe rejointe.'); }
   },
   sector: (f) => {
-    const c = String(f.elements.code.value || '').replace(/\D/g, '');
-    if (c.length !== 4) { toast('Le code du secteur est un nombre à 4 chiffres (sur le billet du responsable).'); return; }
+    const up = String(f.elements.code.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Code d'équipe : on relie le téléphone, puis on redemande le code du secteur
+    if (/^SEP[A-Z0-9]{8}$/.test(up)) {
+      if (!joinTeam(Sync.url(), `SEP-${up.slice(3, 7)}-${up.slice(7)}`)) return;
+      f.reset(); if (Page.cur) Page.refresh();
+      toast('Équipe rejointe. Saisissez maintenant le code à 4 chiffres de votre secteur.', { ms: 7000 });
+      return;
+    }
+    const c = up.replace(/\D/g, '');
+    if (c.length !== 4) { toast(Sync.code ? 'Le code du secteur est un nombre à 4 chiffres (sur le billet du responsable).' : 'Saisissez le code d’équipe SEP-XXXX-XXXX du billet, ou scannez son QR code.'); return; }
     const z = zoneByCode(c);
     if (!z) {
       const dup = zones().filter((x) => x.code === c).length > 1;
@@ -2776,9 +2782,8 @@ const FORMS = {
     Sector.set(c); LS.set(K.welcomed, true);
     if (!Role.chosen) Role.set('distrib');
     f.reset();
-    const nr = zonesStreets([z]).length;
-    toast(`Secteur ${z.name} · ${nr} rue${nr > 1 ? 's' : ''}.`);
-    if (Page.cur === 'welcome') Page.set({ step: 'who' }); else if (Page.cur) Page.refresh();
+    toast(`Secteur ${z.name} · ${pl(zonesStreets([z]).length, 'rue')} à faire.`, { ms: 5000 });
+    if (Page.cur === 'welcome') { Page.close(); go('map'); } else if (Page.cur) Page.refresh();
   },
   'me-add': (f) => {
     const list = f.elements.mname.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
@@ -2907,7 +2912,7 @@ function boot() {
   maybeWelcome();
   if (!Role.chosen && !Page.cur) Role.set('distrib');
   if (join && Sync.configured) {
-    if (Sector.code) { toast('Équipe rejointe : indiquez qui vous êtes.'); setTimeout(openMeSheet, 1200); }
+    if (Sector.code) { toast('Équipe rejointe. Voici vos rues.'); Page.close(); go('map'); }
     else { toast('Équipe rejointe : saisissez le code de votre secteur.'); Page.open('welcome', { step: 'secteur' }); }
   }
   else if (wiped) toast('Nouvelle version : l’app est repartie à zéro sur ce téléphone.', { ms: 6000 });
