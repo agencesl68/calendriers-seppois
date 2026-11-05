@@ -1924,10 +1924,11 @@ PAGES.welcome = (args) => {
     <p>Les ${nf(BASE_ADDRS.length)} adresses du secteur sont déjà chargées : ${COMMUNES.join(', ')}. Le responsable répartit les rues, chaque équipe suit les siennes, même sans réseau.</p>
     <div class="w-facts"><span>${COMMUNES.length} communes</span><span>${streets().length} rues</span><span>${nf(BASE_ADDRS.length)} adresses</span><span>Hors ligne</span></div>
     <div class="w-actions">
-      <button class="btn red block" data-act="w-step" data-v="secteur">${ico('door')} Je distribue</button>
+      ${(() => { const r = phoneReady(); return r ? `<button class="btn red block" data-act="w-done">${ico('chev-r')} ${esc(r)}</button>` : ''; })()}
+      <button class="btn ${phoneReady() ? 'ghost' : 'red'} block" data-act="w-step" data-v="secteur">${ico('door')} Je distribue</button>
       <button class="btn ghost block" data-act="w-step" data-v="join">${ico('link')} J'ai un code d'équipe</button>
       <button class="btn ghost block" data-act="w-step" data-v="code">${ico('gear')} Je suis le responsable</button>
-      <button class="link" data-act="w-demo">Découvrir avec des données de démo</button>
+      ${Store.demoOn ? '<button class="link" data-act="demo-exit">Quitter la démo</button>' : '<button class="link" data-act="w-demo">Découvrir avec des données de démo</button>'}
     </div>
   </div>` };
 };
@@ -2498,8 +2499,16 @@ function applyTheme() {
   const dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   $('meta[name="theme-color"]').content = dark ? '#0B0C0E' : '#15171A';
 }
-function maybeWelcome() {
-  if (!Store.demoOn && !Role.chosen && !LS.get(K.welcomed, false)) Page.open('welcome', { step: 'intro' });
+/** Ouvrir le lien amène toujours sur l'écran de démarrage. */
+function maybeWelcome() { Page.open('welcome', { step: 'intro' }); }
+/** Ce téléphone est-il déjà prêt à servir ? Si oui, l'écran de démarrage propose « Continuer ». */
+function phoneReady() {
+  if (Store.demoOn) return 'Continuer · mode démo';
+  if (Role.admin) return 'Continuer · accès responsable';
+  const z = Sector.zone;
+  if (z) return `Continuer · ${z.name}`;
+  if (Me.team().length && myZones().length) return `Continuer · ${names(Me.team())}`;
+  return '';
 }
 function joinTeam(url, code) {
   if (Store.demoOn) Store.exitDemo();
@@ -2720,7 +2729,7 @@ const A = {
   'w-demo': () => { LS.set(K.welcomed, true); Page.close(); A['demo-enter'](); },
   'w-zones-com': () => { A['auto-com'](); Page.set({ step: 'who' }); },
   'w-zones-auto': () => { A['auto-go'](); Page.set({ step: 'who' }); },
-  'w-done': () => { LS.set(K.welcomed, true); if (!Role.chosen) Role.set('distrib'); Page.close(); go('home'); },
+  'w-done': () => { LS.set(K.welcomed, true); if (!Role.chosen) Role.set('distrib'); Page.close(); go(Role.admin || Store.demoOn ? 'home' : 'map'); },
 };
 const FORMS = {
   'add-member': (f) => {
