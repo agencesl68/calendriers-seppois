@@ -45,7 +45,7 @@ Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mo
 - **Répartition des rues**, le cœur de l'app, pour qu'aucune maison ne soit oubliée :
   - **par rue** : cocher une rue entière, un côté (pair ou impair) ou des maisons précises ;
   - **sur la carte** : toucher une rue pour l'ajouter ou la retirer entière, ou entourer des maisons au doigt ;
-  - **automatique** : un secteur par commune, ou un découpage équilibré qui garde les rues entières ;
+  - **automatique** : un secteur par commune, ou des quartiers par village — vous choisissez le nombre de secteurs village par village, l'app découpe en blocs d'un seul tenant (nord, est, sud, ouest), rues entières et foyers équilibrés ;
   - une maison n'appartient qu'à **un seul** secteur ;
   - le compteur **« adresses sans équipe »** et la page pour les ranger rue par rue garantissent que tout est couvert ;
   - **Partager** copie la répartition en texte, prête à coller dans le groupe de l'amicale.

@@ -246,7 +246,7 @@ function setSheetUrl(url) { LS.set(K.cfg, { url: url.trim() }); }
 const UI = Object.assign({ view: 'home', mapMode: 'map', filter: 'all', zone: '', com: '', street: null, q: '', sort: 'alpha' }, LS.get(K.ui, {}));
 UI.tour = Object.assign({ street: null, near: false, order: 'sides', open: true, cur: null }, UI.tour || {});
 UI.street = null;
-const saveUI = () => LS.set(K.ui, { view: UI.view, mapMode: UI.mapMode, filter: UI.filter, zone: UI.zone, com: UI.com, sort: UI.sort, autoN: UI.autoN, tour: UI.tour });
+const saveUI = () => LS.set(K.ui, { view: UI.view, mapMode: UI.mapMode, filter: UI.filter, zone: UI.zone, com: UI.com, sort: UI.sort, autoN: UI.autoN, autoK: UI.autoK, tour: UI.tour });
 
 const MAX_TEAM = 4;
 /** L'équipe qui tourne avec ce téléphone : 1 à 4 personnes (le plus souvent 2 ou 3). */
@@ -680,19 +680,107 @@ function autoGroups(k, keepStreets = true) {
   if (keepStreets) return cluster(streets().map((st) => ({ ids: st.addrs.map((a) => a.id), w: sum(st.addrs, (a) => unitsOf(a.id).length), lat: sum(st.addrs, (a) => a.lat) / st.addrs.length, lon: sum(st.addrs, (a) => a.lon) / st.addrs.length })), k);
   return cluster(addrs().map((a) => ({ ids: [a.id], w: unitsOf(a.id).length, lat: a.lat, lon: a.lon })), k);
 }
+/** Découpe un village en k secteurs d'un seul tenant : répartition équilibrée, puis recollage des morceaux. */
+function growRegions(items, k) {
+  const n = items.length;
+  if (k <= 1 || n <= 1) return [items.flatMap((i) => i.ids)];
+  const lat0 = 47.53, lon0 = 7.18, kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
+  const P = items.map((it) => ({ ...it, x: (it.lon - lon0) * kx, y: (it.lat - lat0) * ky }));
+  const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  // Voisinage des rues : les 5 plus proches, plus tout ce qui est à moins de 250 m
+  const adj = P.map(() => new Set());
+  P.forEach((p, i) => {
+    const near = P.map((q, j) => ({ j, d: d2(p, q) })).filter((o) => o.j !== i).sort((a, b) => a.d - b.d);
+    const link = (o) => { adj[i].add(o.j); adj[o.j].add(i); };
+    near.slice(0, 4).forEach(link);
+    near.filter((o) => o.d <= 250 * 250).forEach(link);
+  });
+  // Les hameaux isolés sont rattachés au reste, sinon ils ne peuvent jamais changer de secteur
+  const comp = new Array(n).fill(-1); let nc = 0;
+  for (let i = 0; i < n; i++) if (comp[i] < 0) { const st = [i]; comp[i] = nc; while (st.length) { const u = st.pop(); for (const j of adj[u]) if (comp[j] < 0) { comp[j] = nc; st.push(j); } } nc++; }
+  while (nc > 1) {
+    let bi = -1, bj = -1, bd = Infinity;
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (comp[i] !== comp[j] && d2(P[i], P[j]) < bd) { bd = d2(P[i], P[j]); bi = i; bj = j; }
+    if (bi < 0) break;
+    adj[bi].add(bj); adj[bj].add(bi);
+    const from = comp[bj], to = comp[bi];
+    for (let i = 0; i < n; i++) if (comp[i] === from) comp[i] = to;
+    nc--;
+  }
+  // 1. Répartition équilibrée : chaque secteur reçoit à peu près le même nombre de foyers
+  const itemOf = new Map();
+  items.forEach((it, i) => it.ids.forEach((id) => itemOf.set(id, i)));
+  const owner = new Array(n).fill(0);
+  cluster(items, k).forEach((ids, g) => ids.forEach((id) => { owner[itemOf.get(id)] = g; }));
+  const kk = Math.max(...owner) + 1;
+  // 2. Recollage : un morceau détaché rejoint le secteur voisin auquel il tient le plus
+  for (let pass = 0; pass < 8; pass++) {
+    let moved = 0;
+    for (let g = 0; g < kk; g++) {
+      const mine = []; owner.forEach((o, i) => { if (o === g) mine.push(i); });
+      if (mine.length < 2) continue;
+      const set = new Set(mine), seen = new Set(), parts = [];
+      for (const i of mine) {
+        if (seen.has(i)) continue;
+        const c = [], st = [i]; seen.add(i);
+        while (st.length) { const u = st.pop(); c.push(u); for (const v of adj[u]) if (set.has(v) && !seen.has(v)) { seen.add(v); st.push(v); } }
+        parts.push(c);
+      }
+      if (parts.length < 2) continue;
+      parts.sort((a, b) => sum(b, (i) => P[i].w) - sum(a, (i) => P[i].w)); // on garde le plus gros morceau
+      for (const c of parts.slice(1)) {
+        const votes = {};
+        for (const i of c) for (const j of adj[i]) if (owner[j] !== g) votes[owner[j]] = (votes[owner[j]] || 0) + 1;
+        const to = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+        if (!to) continue;
+        c.forEach((i) => { owner[i] = +to[0]; });
+        moved++;
+      }
+    }
+    if (!moved) break;
+  }
+  // 3. Lissage : une rue cernée par un autre secteur le rejoint, tant que ça n'alourdit pas l'inégalité
+  const loads = Array.from({ length: kk }, (_, g) => sum(P.filter((_, i) => owner[i] === g), (p) => p.w));
+  const avg = sum(P, (p) => p.w) / kk;
+  for (let round = 0; round < 8; round++) {
+    let moved = 0;
+    for (let i = 0; i < n; i++) {
+      const from = owner[i], w = P[i].w;
+      if (owner.filter((o) => o === from).length < 2) continue;
+      const cnt = {};
+      for (const j of adj[i]) cnt[owner[j]] = (cnt[owner[j]] || 0) + 1;
+      const mine = cnt[from] || 0;
+      const best = Object.entries(cnt).filter(([g]) => +g !== from).sort((a, b) => b[1] - a[1])[0];
+      if (!best || best[1] < mine + 2) continue;
+      const to = +best[0];
+      const cerclee = best[1] >= Math.ceil(adj[i].size * 0.75);
+      // On va du plus lourd vers le plus léger ; une rue totalement cernée passe quand même, sans dépasser la moyenne
+      if (!(loads[to] + w <= loads[from]) && !(cerclee && loads[to] + w <= avg * 1.15)) continue;
+      loads[from] -= w; loads[to] += w; owner[i] = to; moved++;
+    }
+    if (!moved) break;
+  }
+  const out = Array.from({ length: kk }, () => []);
+  P.forEach((p, i) => out[owner[i]].push(...p.ids));
+  return out.filter((g) => g.length);
+}
+/** Nombre de secteurs conseillé pour un village : environ 130 foyers chacun. */
+const comUnits = (com) => memo('cu:' + com, () => sum(addrs().filter((a) => a.com === com), (a) => unitsOf(a.id).length));
+const defaultK = (com) => clamp(Math.ceil(comUnits(com) / 130), 1, 8);
+const autoK = () => Object.fromEntries(COMMUNES.map((c) => [c, clamp((UI.autoK || {})[c] ?? defaultK(c), 1, 8)]));
 /** Découpe chaque village en k secteurs compacts, nommés nord / est / sud / ouest. */
 const DIR4 = ['nord', 'est', 'sud', 'ouest'];
 const DIR8 = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest'];
-function villageGroups(k = 4) {
-  const idx = addrIdx(), out = [];
+function villageGroups(ks) {
+  const idx = addrIdx(), out = [], per = ks || autoK();
   for (const com of COMMUNES) {
     const list = addrs().filter((a) => a.com === com);
     if (!list.length) continue;
     const bySt = new Map();
     for (const a of list) { if (!bySt.has(a.sk)) bySt.set(a.sk, []); bySt.get(a.sk).push(a); }
     const items = [...bySt.values()].map((arr) => ({ ids: arr.map((a) => a.id), w: sum(arr, (a) => unitsOf(a.id).length), lat: sum(arr, (a) => a.lat) / arr.length, lon: sum(arr, (a) => a.lon) / arr.length }));
-    const kk = clamp(k, 1, Math.min(items.length, 8));
-    const groups = cluster(items, kk).filter((g) => g.length);
+    const kk = clamp(typeof per === 'number' ? per : per[com] || 1, 1, Math.min(items.length, 8));
+    const groups = growRegions(items, kk).filter((g) => g.length);
     const c = [sum(list, (a) => a.lat) / list.length, sum(list, (a) => a.lon) / list.length];
     const kx = Math.cos((c[0] * Math.PI) / 180);
     const withAng = groups.map((ids) => {
@@ -1331,10 +1419,11 @@ function renderAdmin() {
       <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!UI.auto}">${ico('sparkle')} Répartition automatique</button>
       ${UI.auto ? `<div class="quick" style="margin-top:14px">
         <button class="btn block" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button>
-        <div class="note-box">Chaque village est coupé en quartiers compacts — <b>nord, est, sud, ouest</b> — les rues restent entières et chaque équipe reçoit à peu près le même nombre de foyers.</div>
-        <div class="set-row" style="border:0"><div class="t"><b>Secteurs par village</b><small>${pl((UI.autoN || 4) * COMMUNES.length, 'secteur')} en tout · ≈ ${nf(Math.round(S.total / Math.max(1, (UI.autoN || 4) * COMMUNES.length)))} foyers chacun</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${UI.autoN || 4}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
+        <div class="note-box">Chaque village est coupé en quartiers <b>d’un seul tenant</b> — nord, est, sud, ouest — sans trou ni enclave. Les rues restent entières. Choisissez le nombre de secteurs village par village.</div>
+        ${(() => { const k = autoK(); return COMMUNES.map((c) => `<div class="set-row"><div class="t"><b>${esc(c)}</b><small>${nf(comUnits(c))} foyers · ≈ ${nf(Math.round(comUnits(c) / k[c]))} par secteur</small></div><div class="stepper" style="min-width:140px"><button data-act="auto-k" data-com="${esc(c)}" data-v="-1" aria-label="Un secteur de moins à ${esc(c)}">${ico('minus')}</button><b>${k[c]}</b><button data-act="auto-k" data-com="${esc(c)}" data-v="1" aria-label="Un secteur de plus à ${esc(c)}">${ico('plus')}</button></div></div>`).join(''); })()}
+        <button class="link" data-act="auto-reset-k" style="justify-self:start">Revenir aux nombres conseillés</button>
         ${zs.some((z) => z.code) ? '<div class="note-box">Remplacer les secteurs leur donne de <b>nouveaux codes</b> : les billets déjà distribués ne marcheront plus.</div>' : ''}
-        <button class="btn block" data-act="auto-go">${ico('sparkle')} ${zs.length ? `Remplacer par ${pl((UI.autoN || 4) * COMMUNES.length, 'secteur')}` : `Créer ${pl((UI.autoN || 4) * COMMUNES.length, 'secteur')}`}</button>
+        ${(() => { const t = sum(Object.values(autoK())); return `<button class="btn block" data-act="auto-go">${ico('sparkle')} ${zs.length ? `Remplacer par ${pl(t, 'secteur')}` : `Créer ${pl(t, 'secteur')}`}</button>`; })()}
       </div>` : ''}
     </section>
     ${zs.length ? `<section class="card">
@@ -2019,8 +2108,8 @@ PAGES.welcome = (args) => {
       <div class="w-actions">
         <button class="btn red block" data-act="w-zones-com">${ico('map')} Un secteur par commune <small>${COMMUNES.length} secteurs</small></button>
         <div class="card" style="display:grid;gap:12px">
-          <div class="set-row" style="border:0;padding:0"><div class="t"><b>Ou des quartiers par village</b><small>Nord, est, sud, ouest · ≈ ${nf(Math.round(S.total / Math.max(1, n * COMMUNES.length)))} foyers par secteur</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${n}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
-          <button class="btn ghost block" data-act="w-zones-auto">${ico('sparkle')} Créer ${pl(n * COMMUNES.length, 'secteur')} (${n} par village)</button>
+          <div class="set-row" style="border:0;padding:0"><div class="t"><b>Ou des quartiers par village</b><small>D’un seul tenant, nord / est / sud / ouest · ajustable ensuite village par village</small></div></div>
+          <button class="btn ghost block" data-act="w-zones-auto">${ico('sparkle')} Créer ${pl(sum(Object.values(autoK())), 'secteur')}</button>
         </div>
         <button class="link" data-act="w-done">Je répartirai plus tard</button>
       </div>
@@ -2890,12 +2979,13 @@ const A = {
   print: () => window.print(),
   'sector-clear': () => { Sector.clear(); toast('Secteur retiré de ce téléphone.'); },
   'auto-open': () => { UI.auto = !UI.auto; UI.autoN = UI.autoN || 6; App.changed(); },
-  'auto-n': (el) => { UI.autoN = clamp((UI.autoN || 4) + +el.dataset.v, 1, 6); saveUI(); if (Page.cur) Page.render(false); App.changed(); },
+  'auto-k': (el) => { const c = el.dataset.com, k = autoK(); UI.autoK = { ...(UI.autoK || {}), [c]: clamp(k[c] + +el.dataset.v, 1, 8) }; saveUI(); if (Page.cur) Page.render(false); App.changed(); },
+  'auto-reset-k': () => { UI.autoK = {}; saveUI(); if (Page.cur) Page.render(false); App.changed(); },
   'auto-com': () => { replaceZones(COMMUNES.map((c) => addrs().filter((a) => a.com === c).map((a) => a.id)), (ids, i) => COMMUNES[i]); UI.auto = false; App.changed(); toast(`${COMMUNES.length} secteurs créés, un par commune. Affectez une équipe à chacun.`); },
   'auto-go': () => {
-    const k = clamp(UI.autoN || 4, 1, 6), list = villageGroups(k);
+    const list = villageGroups();
     replaceZonesNamed(list); UI.auto = false; App.changed();
-    toast(`${pl(list.length, 'secteur')} créés : ${k} par village, rues entières. Attribuez-les à vos équipes.`, { ms: 6000 });
+    toast(`${pl(list.length, 'secteur')} créés, d’un seul tenant et rues entières. Attribuez-les à vos équipes.`, { ms: 6000 });
   },
   'unassigned-map': () => { UI.zone = '__none'; UI.filter = 'all'; UI.mapMode = 'map'; saveUI(); Page.close(); go('map'); },
   'unassigned-new': () => { ZE = newZE(); unassigned().forEach((a) => ZE.addrs.add(a.id)); ZE.only = true; Page.open('zone'); },
