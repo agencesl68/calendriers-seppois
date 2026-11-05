@@ -1024,6 +1024,7 @@ function renderHome() {
         <button class="btn block" data-act="zone-build">${ico('plus')} Créer un secteur</button>
         <button class="btn ghost block" data-act="page" data-v="assign">${ico('user')} Attribuer les secteurs</button>
       </div>
+      <button class="btn ghost block" style="margin-top:8px" data-act="auto-show">${ico('sparkle')} Répartition automatique · ${pl(sum(Object.values(autoK())), 'secteur')}</button>
     </section>
     <section class="card">
       <div class="card-h"><h2>Répartition</h2><button class="link" data-act="go" data-v="team">Gérer</button></div>
@@ -1402,6 +1403,7 @@ function renderTeam() { renderAdmin(); } // les distributeurs n'ont pas cet ongl
 /** Accès responsable : répartir les rues entre les équipes. */
 function renderAdmin() {
   const el = $('#v-team'), zs = zones(), ms = members(), S = stats();
+  if (!zs.length && UI.auto === undefined) UI.auto = true; // rien à répartir encore : on montre la proposition
   const unassignedMembers = ms.filter((m) => !zs.some((z) => (z.members || []).includes(m.id)));
   el.innerHTML = `<div class="view-in">
     <div class="tour-top"><h2 class="display">Répartition</h2><span class="role-pill">${ico('gear', 'sm')} Responsable</span></div>
@@ -1416,7 +1418,7 @@ function renderAdmin() {
         <button class="btn ghost" data-act="page" data-v="codes">${ico('grid')} Imprimer les billets</button>
         <button class="btn ghost" data-act="page" data-v="prep">${ico('pen')} Ajuster rue par rue</button>
       </div>
-      <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!UI.auto}">${ico('sparkle')} Répartition automatique</button>
+      <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!UI.auto}">${ico('sparkle')} Répartition automatique${UI.auto ? '' : ` · ${pl(sum(Object.values(autoK())), 'secteur')}`}</button>
       ${UI.auto ? `<div class="quick" style="margin-top:14px">
         <button class="btn block" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button>
         <div class="note-box">Chaque village est coupé en quartiers <b>d’un seul tenant</b> — nord, est, sud, ouest — sans trou ni enclave. Les rues restent entières. Choisissez le nombre de secteurs village par village.</div>
@@ -1961,8 +1963,9 @@ PAGES.assign = (args) => {
     body: `<div class="stackv">
       ${zs.length ? '<div class="note-box">Touchez un secteur pour y mettre les noms des pompiers : l’app lui donne alors son code à 4 chiffres.</div>' : ''}
       ${zs.length ? zs.map((x) => { const g = S.byZone[x.id] || { total: 0 }; return `<button class="zone-row as-btn" data-act="page" data-v="assign" data-z="${x.id}"><span class="zdot" style="--c:${x.color}"></span><b>${esc(x.name)}</b><span class="meta">${x.code ? esc(x.code) : 'sans code'}</span><span class="zone-team" style="grid-column:2/-1">${(x.members || []).length ? esc(names(x.members)) : '<i class="todo">Personne pour l’instant</i>'} · ${pl(zonesStreets([x]).length, 'rue')} · ${nf(g.total)} foyers</span></button>`; }).join('')
-        : '<div class="card empty"><b>Aucun secteur</b><span>Créez d’abord un secteur, puis revenez ici pour lui attribuer une équipe.</span></div>'}
+        : '<div class="card empty"><b>Aucun secteur</b><span>Créez-les un par un sur la carte, ou laissez l’app proposer un découpage par village.</span></div>'}
       <button class="btn block" data-act="zone-build">${ico('plus')} Créer un secteur</button>
+      <button class="btn ghost block" data-act="auto-show">${ico('sparkle')} Répartition automatique · ${pl(sum(Object.values(autoK())), 'secteur')}</button>
       ${zs.length ? `<button class="btn ghost block" data-act="page" data-v="codes">${ico('grid')} Imprimer les billets</button>` : ''}
     </div>`,
   };
@@ -2978,7 +2981,8 @@ const A = {
   'codes-gen': () => { if (!Role.admin) return; let n = 0; for (const z of zones()) if (!z.code) { Store.put('zone', z.id, { ...z, code: newZoneCode() }); n++; } toast(`${n} code${n > 1 ? 's' : ''} créé${n > 1 ? 's' : ''}.`); },
   print: () => window.print(),
   'sector-clear': () => { Sector.clear(); toast('Secteur retiré de ce téléphone.'); },
-  'auto-open': () => { UI.auto = !UI.auto; UI.autoN = UI.autoN || 6; App.changed(); },
+  'auto-open': () => { UI.auto = !UI.auto; App.changed(); },
+  'auto-show': () => { UI.auto = true; if (Page.cur) Page.close(); go('team'); setTimeout(() => $('#v-team [data-act="auto-go"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80); },
   'auto-k': (el) => { const c = el.dataset.com, k = autoK(); UI.autoK = { ...(UI.autoK || {}), [c]: clamp(k[c] + +el.dataset.v, 1, 8) }; saveUI(); if (Page.cur) Page.render(false); App.changed(); },
   'auto-reset-k': () => { UI.autoK = {}; saveUI(); if (Page.cur) Page.render(false); App.changed(); },
   'auto-com': () => { replaceZones(COMMUNES.map((c) => addrs().filter((a) => a.com === c).map((a) => a.id)), (ids, i) => COMMUNES[i]); UI.auto = false; App.changed(); toast(`${COMMUNES.length} secteurs créés, un par commune. Affectez une équipe à chacun.`); },
