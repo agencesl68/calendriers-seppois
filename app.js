@@ -1994,7 +1994,7 @@ PAGES.assign = (args) => {
   return {
     title: 'Attribuer les secteurs',
     body: `<div class="stackv">
-      ${zs.length ? '<div class="note-box">Touchez un secteur pour y mettre les noms des pompiers : l’app lui donne alors son code à 4 chiffres.</div>' : ''}
+      ${zs.length ? '<div class="note-box">Touchez un secteur pour voir son code à 4 chiffres et son billet. Les noms arrivent tout seuls : chaque pompier saisit le code sur son téléphone et donne son prénom.</div>' : ''}
       ${zs.length ? zs.map((x) => { const g = S.byZone[x.id] || { total: 0 }; return `<button class="zone-row as-btn" data-act="page" data-v="assign" data-z="${x.id}"><span class="zdot" style="--c:${x.color}"></span><b>${esc(x.name)}</b><span class="meta">${x.code ? esc(x.code) : 'sans code'}</span><span class="zone-team" style="grid-column:2/-1">${(() => { const mm = zoneMembers(x); return mm.length ? esc(names(mm)) : '<i class="todo">Personne pour l’instant</i>'; })()} · ${pl(zonesStreets([x]).length, 'rue')} · ${nf(g.total)} foyers</span></button>`; }).join('')
         : '<div class="card empty"><b>Aucun secteur</b><span>Créez-les un par un sur la carte, ou laissez l’app proposer un découpage par village.</span></div>'}
       <button class="btn block" data-act="zone-build">${ico('plus')} Créer un secteur</button>
