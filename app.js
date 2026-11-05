@@ -803,7 +803,7 @@ function villageGroups(ks) {
     if (withAng.length === 1) { out.push({ name: com, ids: withAng[0].ids }); continue; }
     // Chaque groupe prend l'orientation la plus proche, sans doublon
     const dirs = withAng.length <= 4 ? DIR4 : DIR8;
-    const step = 360 / dirs.length, taken = new Set();
+    const step = 360 / dirs.length, taken = new Set(), extra = {};
     const gap = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
     // On sert d'abord les groupes dont l'orientation est la plus franche
     [...withAng]
@@ -811,9 +811,11 @@ function villageGroups(ks) {
       .sort((x, y) => x.best[0].d - y.best[0].d)
       .forEach(({ g, best }) => {
         const choice = best.find((o) => !taken.has(o.j));
-        const j = choice ? choice.j : dirs.findIndex((_, x) => !taken.has(x));
-        taken.add(j);
-        out.push({ name: `${com} ${dirs[j]}`, ids: g.ids });
+        if (choice) { taken.add(choice.j); out.push({ name: `${com} ${dirs[choice.j]}`, ids: g.ids }); return; }
+        // Plus de secteurs que d'orientations : on numérote sur l'orientation la plus proche
+        const j = best[0].j;
+        extra[j] = (extra[j] || 1) + 1;
+        out.push({ name: `${com} ${dirs[j]} ${extra[j]}`, ids: g.ids });
       });
   }
   return out;
