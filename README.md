@@ -29,7 +29,7 @@ Tout se prépare à l'avance, sur un ordinateur ou sur le téléphone. Accès re
 
 ### 2. Attribuer les secteurs
 
-**Attribuer les secteurs** → on touche un secteur, on saisit les **noms et prénoms** des pompiers (un par ligne), on enregistre : l'app affiche le **code** du secteur et son **QR code**. Les noms sont **facultatifs** : le code fonctionne même sans.
+**Attribuer les secteurs** → on touche un secteur : l'app affiche son **code** et son **QR code**. Les noms, eux, **n'ont pas à être saisis** : chaque pompier entre le code de son secteur sur son téléphone, donne son prénom, et il apparaît tout seul en face du secteur chez le responsable. La saisie à la main reste possible.
 
 **Imprimer les billets** sort une page par secteur (nom, code, QR code, liste des rues), à découper et à distribuer.
 
@@ -50,7 +50,7 @@ Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mo
   - le compteur **« adresses sans équipe »** et la page pour les ranger rue par rue garantissent que tout est couvert ;
   - **Partager** copie la répartition en texte, prête à coller dans le groupe de l'amicale.
 - **Un code à 4 chiffres par secteur** : l'équipe le saisit une fois et ne voit plus que ses rues. Billets à imprimer (code + QR code + liste des rues) dans **Codes à distribuer**.
-- **Liste des pompiers** : ajout par copier-coller (un prénom par ligne), retrait d'un seul geste avec annulation possible ; les passages déjà faits restent dans l'historique.
+- **Liste des pompiers** : chacun se déclare depuis son téléphone après avoir saisi le code de son secteur, et le responsable le voit arriver en face du secteur. Ajout à la main toujours possible (copier-coller, un prénom par ligne) ; les passages déjà faits restent dans l'historique.
 - **Équipes de 2 ou 3** : chaque secteur est confié à une équipe ; chacun voit « Mes rues » et ce qu'il y reste à faire.
 - **Statut par foyer** : à faire, calendrier donné, absent, à repasser, refus.
 - **Appartements** : une adresse peut contenir plusieurs logements, chacun avec son statut et ses repasses, et un repère facultatif (ex. « 1er étage gauche »).
