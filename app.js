@@ -55,7 +55,11 @@ const skey = (com, street) => `${com}|${street}`;
 const sortKey = (s) => norm(s.replace(/^(Rue|Impasse|Place|Chemin|Allée|Route)\s+(du |de la |de l'|des |de |d')?/i, ''));
 const mkAddr = (id, com, street, n0, lat, lon, custom = false) => { const n = parseInt(n0, 10) || 0; return { id, com, ci: comIdx(com), street, sk: skey(com, street), num: String(n0), n, lat, lon, even: n % 2 === 0, custom }; };
 const numCmp = (a, b) => a.n - b.n || a.num.localeCompare(b.num, 'fr', { numeric: true });
-const BASE_ADDRS = ADDR.a.map(([id, si, n0, lat, lon]) => { const [ci, name] = ADDR.s[si]; return mkAddr(id, COMMUNES[ci], name, n0, lat, lon); });
+const BASE_ADDRS = (() => {
+  const seen = new Set(), out = []; // la base nationale contient un doublon : une maison ne doit figurer qu'une fois
+  for (const [id, si, n0, lat, lon] of ADDR.a) { if (seen.has(id)) continue; seen.add(id); const [ci, name] = ADDR.s[si]; out.push(mkAddr(id, COMMUNES[ci], name, n0, lat, lon)); }
+  return out;
+})();
 const distM = (a, b) => { const kx = 111320 * Math.cos((a[0] * Math.PI) / 180); return Math.hypot((a[1] - b[1]) * kx, (a[0] - b[0]) * 110540); };
 
 // ═════════════════════════ Référentiels
@@ -676,6 +680,49 @@ function autoGroups(k, keepStreets = true) {
   if (keepStreets) return cluster(streets().map((st) => ({ ids: st.addrs.map((a) => a.id), w: sum(st.addrs, (a) => unitsOf(a.id).length), lat: sum(st.addrs, (a) => a.lat) / st.addrs.length, lon: sum(st.addrs, (a) => a.lon) / st.addrs.length })), k);
   return cluster(addrs().map((a) => ({ ids: [a.id], w: unitsOf(a.id).length, lat: a.lat, lon: a.lon })), k);
 }
+/** Découpe chaque village en k secteurs compacts, nommés nord / est / sud / ouest. */
+const DIR4 = ['nord', 'est', 'sud', 'ouest'];
+const DIR8 = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest'];
+function villageGroups(k = 4) {
+  const idx = addrIdx(), out = [];
+  for (const com of COMMUNES) {
+    const list = addrs().filter((a) => a.com === com);
+    if (!list.length) continue;
+    const bySt = new Map();
+    for (const a of list) { if (!bySt.has(a.sk)) bySt.set(a.sk, []); bySt.get(a.sk).push(a); }
+    const items = [...bySt.values()].map((arr) => ({ ids: arr.map((a) => a.id), w: sum(arr, (a) => unitsOf(a.id).length), lat: sum(arr, (a) => a.lat) / arr.length, lon: sum(arr, (a) => a.lon) / arr.length }));
+    const kk = clamp(k, 1, Math.min(items.length, 8));
+    const groups = cluster(items, kk).filter((g) => g.length);
+    const c = [sum(list, (a) => a.lat) / list.length, sum(list, (a) => a.lon) / list.length];
+    const kx = Math.cos((c[0] * Math.PI) / 180);
+    const withAng = groups.map((ids) => {
+      const pts = ids.map((id) => idx.get(id)).filter(Boolean);
+      const la = sum(pts, (p) => p.lat) / pts.length, lo = sum(pts, (p) => p.lon) / pts.length;
+      const ang = (((Math.atan2((lo - c[1]) * kx, la - c[0]) * 180) / Math.PI) + 360) % 360;
+      return { ids, ang, n: sum(pts, (p) => unitsOf(p.id).length) };
+    });
+    if (withAng.length === 1) { out.push({ name: com, ids: withAng[0].ids }); continue; }
+    // Chaque groupe prend l'orientation la plus proche, sans doublon
+    const dirs = withAng.length <= 4 ? DIR4 : DIR8;
+    const step = 360 / dirs.length, taken = new Set();
+    const gap = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+    // On sert d'abord les groupes dont l'orientation est la plus franche
+    [...withAng]
+      .map((g) => ({ g, best: dirs.map((_, j) => ({ j, d: gap(g.ang, j * step) })).sort((x, y) => x.d - y.d) }))
+      .sort((x, y) => x.best[0].d - y.best[0].d)
+      .forEach(({ g, best }) => {
+        const choice = best.find((o) => !taken.has(o.j));
+        const j = choice ? choice.j : dirs.findIndex((_, x) => !taken.has(x));
+        taken.add(j);
+        out.push({ name: `${com} ${dirs[j]}`, ids: g.ids });
+      });
+  }
+  return out;
+}
+function replaceZonesNamed(list) {
+  for (const z of zones()) Store.put('zone', z.id, { ...z, del: true });
+  list.forEach((g, i) => { const id = uid('z'); Store.put('zone', id, { id, name: g.name, code: newZoneCode(), color: ZONE_COLORS[i % ZONE_COLORS.length], addrs: g.ids, members: [], order: i }); });
+}
 function replaceZones(groups, namer) {
   for (const z of zones()) Store.put('zone', z.id, { ...z, del: true });
   groups.forEach((ids, i) => { const id = uid('z'); Store.put('zone', id, { id, name: namer(ids, i), code: newZoneCode(), color: ZONE_COLORS[i % ZONE_COLORS.length], addrs: ids, members: [], order: i }); });
@@ -1284,10 +1331,10 @@ function renderAdmin() {
       <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!UI.auto}">${ico('sparkle')} Répartition automatique</button>
       ${UI.auto ? `<div class="quick" style="margin-top:14px">
         <button class="btn block" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button>
-        <div class="note-box">Ou un découpage équilibré : les rues restent entières et chaque équipe reçoit à peu près le même nombre de foyers.</div>
-        <div class="set-row" style="border:0"><div class="t"><b>Nombre de secteurs</b><small>≈ ${nf(Math.round(S.total / (UI.autoN || 6)))} foyers chacun</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${UI.autoN || 6}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
+        <div class="note-box">Chaque village est coupé en quartiers compacts — <b>nord, est, sud, ouest</b> — les rues restent entières et chaque équipe reçoit à peu près le même nombre de foyers.</div>
+        <div class="set-row" style="border:0"><div class="t"><b>Secteurs par village</b><small>${pl((UI.autoN || 4) * COMMUNES.length, 'secteur')} en tout · ≈ ${nf(Math.round(S.total / Math.max(1, (UI.autoN || 4) * COMMUNES.length)))} foyers chacun</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${UI.autoN || 4}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
         ${zs.some((z) => z.code) ? '<div class="note-box">Remplacer les secteurs leur donne de <b>nouveaux codes</b> : les billets déjà distribués ne marcheront plus.</div>' : ''}
-        <button class="btn ghost block" data-act="auto-go">${zs.length ? `Remplacer les ${zs.length} secteurs` : 'Créer les secteurs'}</button>
+        <button class="btn block" data-act="auto-go">${ico('sparkle')} ${zs.length ? `Remplacer par ${pl((UI.autoN || 4) * COMMUNES.length, 'secteur')}` : `Créer ${pl((UI.autoN || 4) * COMMUNES.length, 'secteur')}`}</button>
       </div>` : ''}
     </section>
     ${zs.length ? `<section class="card">
@@ -1965,15 +2012,15 @@ PAGES.welcome = (args) => {
     <form data-form="w-code" style="display:grid;gap:12px"><input class="input code-input" name="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="••••" aria-label="Code d’accès responsable" required><button class="btn red block" type="submit">Entrer</button></form>
   </div>` };
   if (step === 'zones') {
-    const n = UI.autoN || 6, S = stats();
+    const n = UI.autoN || 4, S = stats();
     return { bare: true, body: `<div class="welcome left">
       <h1 class="w-title sm">Répartition de départ</h1>
       <p>Pour ne pas partir d'une page blanche. Vous pourrez tout ajuster ensuite : déplacer une rue, découper un secteur, le renommer, y mettre une équipe.</p>
       <div class="w-actions">
         <button class="btn red block" data-act="w-zones-com">${ico('map')} Un secteur par commune <small>${COMMUNES.length} secteurs</small></button>
         <div class="card" style="display:grid;gap:12px">
-          <div class="set-row" style="border:0;padding:0"><div class="t"><b>Ou un découpage équilibré</b><small>Les rues restent entières · ≈ ${nf(Math.round(S.total / n))} foyers par secteur</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${n}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
-          <button class="btn ghost block" data-act="w-zones-auto">${ico('sparkle')} Créer ${n} secteurs équilibrés</button>
+          <div class="set-row" style="border:0;padding:0"><div class="t"><b>Ou des quartiers par village</b><small>Nord, est, sud, ouest · ≈ ${nf(Math.round(S.total / Math.max(1, n * COMMUNES.length)))} foyers par secteur</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${n}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
+          <button class="btn ghost block" data-act="w-zones-auto">${ico('sparkle')} Créer ${pl(n * COMMUNES.length, 'secteur')} (${n} par village)</button>
         </div>
         <button class="link" data-act="w-done">Je répartirai plus tard</button>
       </div>
@@ -2371,7 +2418,7 @@ const MapView = {
     if (zs.length && z < 18.75 && !L0) {
       const off = (this._off ||= document.createElement('canvas'));
       if (off.width !== this.canvas.width || off.height !== this.canvas.height) { off.width = this.canvas.width; off.height = this.canvas.height; }
-      const o = off.getContext('2d'), idx = addrIdx(), rad = Math.max(4, 24 / mpp);
+      const o = off.getContext('2d'), idx = addrIdx(), rad = clamp(24 / mpp, 4, 16); // la teinte du secteur reste une tache douce, pas un gros pâté
       o.setTransform(this._dpr, 0, 0, this._dpr, 0, 0); o.clearRect(0, 0, W, H);
       for (const zn of zs) { o.fillStyle = Role.admin || L0 ? zn.color : c.red; o.beginPath(); for (const id of zn.addrs || []) { const a = idx.get(id); if (!a) continue; const p = P(a.lat, a.lon); if (!inView(p, rad)) continue; o.moveTo(p.x + rad, p.y); o.arc(p.x, p.y, rad, 0, Math.PI * 2); } o.fill(); }
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = sat ? 0.3 : 0.2; ctx.drawImage(off, 0, 0); ctx.restore();
@@ -2399,7 +2446,7 @@ const MapView = {
       }
     }
     // Adresses : une pastille par adresse, en camembert pour les immeubles
-    const r = z < 13.5 ? 1.8 : z < 15 ? 2.4 : z < 16 ? 3.2 : z < 17 ? 4.5 : z < 17.75 ? 6 : z < 18.5 ? 8 : 10.5;
+    const r = z < 13.5 ? 2.6 : z < 15 ? 3.6 : z < 16 ? 4.8 : z < 17 ? 6.2 : z < 17.75 ? 8 : z < 18.5 ? 10 : 12.5;
     this._r = r;
     const f = UI.filter, hits = [], dim = [];
     for (const a of addrs()) {
@@ -2409,7 +2456,11 @@ const MapView = {
       const keep = L0 ? true : mapKeep(a, zi) && (f === 'all' || (cnt ? cnt[f] > 0 : st === f));
       (keep ? hits : dim).push([a, p, st, cnt, n]);
     }
-    if (dim.length) { ctx.fillStyle = c.st.todo; ctx.globalAlpha = 0.28; ctx.beginPath(); for (const [, p] of dim) { ctx.moveTo(p.x + r * 0.6, p.y); ctx.arc(p.x, p.y, r * 0.6, 0, Math.PI * 2); } ctx.fill(); ctx.globalAlpha = 1; }
+    if (dim.length) { ctx.fillStyle = c.st.todo; ctx.globalAlpha = 0.3; ctx.beginPath(); for (const [, p] of dim) { ctx.moveTo(p.x + r * 0.55, p.y); ctx.arc(p.x, p.y, r * 0.55, 0, Math.PI * 2); } ctx.fill(); ctx.globalAlpha = 1; }
+    // Une ombre douce sous les pastilles : elles ressortent sur le plan comme sur la photo
+    ctx.save();
+    ctx.shadowColor = sat ? 'rgba(0,0,0,.5)' : 'rgba(10,12,16,.45)';
+    ctx.shadowBlur = Math.max(2, r * 0.4); ctx.shadowOffsetY = Math.max(1, r * 0.16);
     const ring = sat ? 'rgba(255,255,255,.95)' : c.surface;
     if (L0) {
       // Mode secteur : sélection en couleur, autres secteurs atténués, maisons sans secteur cerclées de rouge
@@ -2422,18 +2473,20 @@ const MapView = {
       }
     } else {
       hits.sort((x, y) => (x[2] === 'todo' ? 0 : 1) - (y[2] === 'todo' ? 0 : 1));
-      const lw = r > 5 ? 2 : 1.2;
+      const lw = Math.max(1.6, r * 0.3);
       for (const [, p, st, cnt, n] of hits) {
         ctx.strokeStyle = ring;
         if (!cnt) { ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fillStyle = c.st[st]; ctx.fill(); ctx.lineWidth = lw; ctx.stroke(); continue; }
         const R = r + 1.5; let a0 = -Math.PI / 2;
         for (const k of ST_ORDER) { if (!cnt[k]) continue; const a1 = a0 + (cnt[k] / n) * Math.PI * 2; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.arc(p.x, p.y, R, a0, a1); ctx.closePath(); ctx.fillStyle = c.st[k]; ctx.fill(); a0 = a1; }
-        ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.lineWidth = 2.2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.lineWidth = Math.max(2.2, r * 0.3); ctx.stroke();
       }
     }
-    if (r >= 8) {
-      ctx.font = `700 ${r >= 10 ? 11 : 9.5}px Barlow, system-ui, sans-serif`; ctx.fillStyle = '#fff';
-      for (const [a, p, , cnt, n] of hits) { if (L0 && !ZE.addrs.has(a.id)) continue; ctx.fillText(cnt && !L0 ? `${a.n}·${n}` : String(a.n), p.x, p.y + 0.5); }
+    ctx.restore(); // fin de l'ombre des pastilles
+    if (r >= 6) {
+      ctx.font = `800 ${r >= 10 ? 12 : r >= 8 ? 10.5 : 9}px Barlow, system-ui, sans-serif`;
+      ctx.lineWidth = 2.6; ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.fillStyle = '#fff';
+      for (const [a, p, , cnt, n] of hits) { if (L0 && !ZE.addrs.has(a.id)) continue; const t = cnt && !L0 ? `${a.n}·${n}` : String(a.n); ctx.strokeText(t, p.x, p.y + 0.5); ctx.fillText(t, p.x, p.y + 0.5); }
     }
     this._hit = hits;
     if (this.sel && !L0) { const a = addrIdx().get(this.sel); if (a) { const p = P(a.lat, a.lon); ctx.beginPath(); ctx.arc(p.x, p.y, r + 7, 0, Math.PI * 2); ctx.lineWidth = 3; ctx.strokeStyle = sat ? '#fff' : c.ink; ctx.stroke(); } }
@@ -2837,9 +2890,13 @@ const A = {
   print: () => window.print(),
   'sector-clear': () => { Sector.clear(); toast('Secteur retiré de ce téléphone.'); },
   'auto-open': () => { UI.auto = !UI.auto; UI.autoN = UI.autoN || 6; App.changed(); },
-  'auto-n': (el) => { UI.autoN = clamp((UI.autoN || 6) + +el.dataset.v, 2, 12); saveUI(); if (Page.cur) Page.render(false); App.changed(); },
+  'auto-n': (el) => { UI.autoN = clamp((UI.autoN || 4) + +el.dataset.v, 1, 6); saveUI(); if (Page.cur) Page.render(false); App.changed(); },
   'auto-com': () => { replaceZones(COMMUNES.map((c) => addrs().filter((a) => a.com === c).map((a) => a.id)), (ids, i) => COMMUNES[i]); UI.auto = false; App.changed(); toast(`${COMMUNES.length} secteurs créés, un par commune. Affectez une équipe à chacun.`); },
-  'auto-go': () => { const n = UI.autoN || 6; replaceZones(autoGroups(n, true), (ids, i) => { const cs = comsOf(ids); return `Secteur ${i + 1}${cs.length === 1 ? ' · ' + cs[0] : ''}`; }); UI.auto = false; App.changed(); toast(`${n} secteurs créés, rues entières. Affectez une équipe à chacun.`); },
+  'auto-go': () => {
+    const k = clamp(UI.autoN || 4, 1, 6), list = villageGroups(k);
+    replaceZonesNamed(list); UI.auto = false; App.changed();
+    toast(`${pl(list.length, 'secteur')} créés : ${k} par village, rues entières. Attribuez-les à vos équipes.`, { ms: 6000 });
+  },
   'unassigned-map': () => { UI.zone = '__none'; UI.filter = 'all'; UI.mapMode = 'map'; saveUI(); Page.close(); go('map'); },
   'unassigned-new': () => { ZE = newZE(); unassigned().forEach((a) => ZE.addrs.add(a.id)); ZE.only = true; Page.open('zone'); },
   'export-csv': () => exportCSV(),

@@ -41,7 +41,7 @@ Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mo
 
 ## Ce que fait l'app
 
-- **1 522 adresses déjà chargées** (Base Adresse Nationale), réparties dans 120 rues, côté pair et côté impair.
+- **1 521 adresses déjà chargées** (Base Adresse Nationale), réparties dans 120 rues, côté pair et côté impair.
 - **Répartition des rues**, le cœur de l'app, pour qu'aucune maison ne soit oubliée :
   - **par rue** : cocher une rue entière, un côté (pair ou impair) ou des maisons précises ;
   - **sur la carte** : toucher une rue pour l'ajouter ou la retirer entière, ou entourer des maisons au doigt ;
@@ -72,7 +72,7 @@ Dans **Réglages → Remettre à zéro**, quatre niveaux :
 | --- | --- | --- | --- |
 | **Nouvelle campagne** | Tous les statuts, les repasses, l'historique | Les pompiers, les secteurs, la répartition | Responsable |
 | **Effacer les secteurs** | Les secteurs et leurs codes | Les pompiers, les adresses, tous les passages | Responsable |
-| **Tout effacer** | Tout, y compris pompiers et secteurs | Les 1 522 adresses du secteur | Responsable |
+| **Tout effacer** | Tout, y compris pompiers et secteurs | Les 1 521 adresses du secteur | Responsable |
 | **Effacer ce téléphone** | Les données de ce téléphone, son secteur, et le détache de l'équipe | Ce que les autres téléphones ont | Tout le monde |
 
 Pour se déconnecter : **Réglages › Se déconnecter** — quitter l'accès responsable, ou détacher le téléphone de l'équipe (rien n'est effacé, on rejoint avec le code de l'équipe).
