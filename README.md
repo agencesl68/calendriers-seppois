@@ -65,7 +65,7 @@ Ce code sépare les deux interfaces ; ce n'est pas une protection forte (un code
 
 ## Remettre à zéro
 
-Dans **Réglages → Remettre à zéro**, trois niveaux :
+Dans **Réglages → Remettre à zéro**, quatre niveaux :
 
 | | Ce que ça efface | Ce que ça garde | Qui |
 | --- | --- | --- | --- |

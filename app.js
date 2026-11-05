@@ -16,6 +16,7 @@ const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
 const fmtN = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
 const nf = (n) => fmtN.format(n || 0);
 const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+const pl = (n, w) => `${nf(n)} ${w}${+n > 1 ? 's' : ''}`;
 const num = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0; };
 const pad = (n) => String(n).padStart(2, '0');
 const isoDay = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -696,7 +697,7 @@ function makeDemo() {
     const id = 'demo-z' + zi;
     const team = zi % 2 ? [ids[zi * 2], ids[zi * 2 + 1], ids[(zi * 2 + 7) % ids.length]] : [ids[zi * 2], ids[zi * 2 + 1]];
     const list = BASE_ADDRS.filter((a) => a.com === com).sort((a, b) => sortKey(a.street).localeCompare(sortKey(b.street)) || numCmp(a, b));
-    s.zones[id] = { id, name: com, color: ZONE_COLORS[zi], addrs: list.map((a) => a.id), members: team, order: zi, u: 1 + zi };
+    s.zones[id] = { id, name: com, code: String(1926 + zi * 1111), color: ZONE_COLORS[zi], addrs: list.map((a) => a.id), members: team, order: zi, u: 1 + zi }; // codes de démo : 1926, 3037, 4148…
     const us = list.flatMap((a) => { const n = s.bld[a.id]?.n || 1; return Array.from({ length: n }, (_, k) => ({ id: k ? `${a.id}~${k + 1}` : a.id, a })); });
     const nV = Math.round(us.length * prog[zi]);
     for (let k = 0; k < nV; k++) {
@@ -868,7 +869,7 @@ function renderHome() {
     ${mine.length ? `<section class="card">
       <div class="card-h"><h2>Mes rues</h2><span class="muted">${esc(mine.map((z) => z.name).join(', '))}</span></div>
       ${myStreets.slice(0, 6).map((st) => streetMini(st)).join('')}
-      ${myStreets.length > 6 ? `<button class="link" data-act="go" data-v="team">Voir mes ${myStreets.length} rues</button>` : ''}
+      ${myStreets.length > 6 ? `<button class="link" data-act="go" data-v="team">Voir mes ${pl(myStreets.length, 'rue')}</button>` : ''}
     </section>` : `<section class="card"><div class="empty">${(() => { const h = sectorHint(); return h ? sectorHintHtml(h) : '<b>Qui êtes-vous ?</b><span>Choisissez votre prénom et celui des personnes avec vous.</span><button class="btn" data-act="me-sheet">Choisir</button>'; })()}</div></section>`}
     <section class="card">
       <div class="card-h"><h2>Aujourd'hui</h2><span class="muted">${DOWL[now.getDay()]} ${now.getDate()} ${MON[now.getMonth()]}</span></div>
@@ -877,7 +878,7 @@ function renderHome() {
         <div class="kpi"><b>${due.length}</b><span>repasses dues</span></div>
         <div class="kpi"><b>${nf(S.st.todo)}</b><span>foyers restants</span></div>
       </div>
-      ${due.length ? `<div class="mini-list">${due.slice(0, 4).map(repRow).join('')}</div>${due.length > 4 ? `<button class="link" data-act="go" data-v="rep">Voir les ${due.length} repasses</button>` : ''}` : ''}
+      ${due.length ? `<div class="mini-list">${due.slice(0, 4).map(repRow).join('')}</div>${due.length > 4 ? `<button class="link" data-act="go" data-v="rep">Voir les ${pl(due.length, 'repasse')}</button>` : ''}` : ''}
     </section>
   </div>
   <div class="home-col">
@@ -897,7 +898,7 @@ function renderHome() {
     </section>${Role.admin ? '' : '-->'}
     <section class="card">
       <div class="card-h"><h2>14 derniers jours</h2><span class="muted">passages par jour</span></div>
-      ${maxD ? `<div class="chart"><div class="gridline"><span>${maxD}</span></div><div class="bars">${days.map((d) => { const v = S.byDay[d] || 0; return `<i class="${d === today ? 'today' : ''}${v ? '' : ' zero'}" style="height:${v ? Math.max(3, (v / maxD) * 100) : 2}%" title="${dayLabel(d)} : ${v} passages"></i>`; }).join('')}</div><div class="bars-x">${days.map((d, i) => `<span>${i % 2 === 1 ? new Date(d + 'T12:00:00').getDate() : ''}</span>`).join('')}</div></div>` : '<div class="empty">Aucun passage sur les 14 derniers jours.</div>'}
+      ${maxD ? `<div class="chart"><div class="gridline"><span>${maxD}</span></div><div class="bars">${days.map((d) => { const v = S.byDay[d] || 0; return `<i class="${d === today ? 'today' : ''}${v ? '' : ' zero'}" style="height:${v ? Math.max(3, (v / maxD) * 100) : 2}%" title="${dayLabel(d)} : ${pl(v, 'passage')}"></i>`; }).join('')}</div><div class="bars-x">${days.map((d, i) => `<span>${i % 2 === 1 ? new Date(d + 'T12:00:00').getDate() : ''}</span>`).join('')}</div></div>` : '<div class="empty">Aucun passage sur les 14 derniers jours.</div>'}
     </section>
     <section class="card">
       <div class="card-h"><h2>Qui a fait quoi</h2><button class="link" data-act="go" data-v="team">Équipe</button></div>
@@ -922,7 +923,7 @@ function coverageBlock() {
 function zoneRow(z) {
   const g = stats().byZone[z.id] || { total: 0, visited: 0, st: blankSt() };
   const nStreets = zonesStreets([z]).length;
-  return `<button class="zone-row as-btn" data-act="zone-edit" data-v="${z.id}"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="meta">${pct(g.visited, g.total)} %</span>${stackBar(g.st, g.total, 'sm')}<span class="zone-team" style="grid-column:2/-1">${z.code ? `<b class="zcode">${esc(z.code)}</b> · ` : ''}${(z.members || []).length ? avatars(z.members, 4, 'sm') + ' ' + esc(names(z.members)) : '<i class="todo">Aucune équipe</i>'} · ${nStreets} rues · ${nf(g.total)} foyers</span></button>`;
+  return `<button class="zone-row as-btn" data-act="zone-edit" data-v="${z.id}"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="meta">${pct(g.visited, g.total)} %</span>${stackBar(g.st, g.total, 'sm')}<span class="zone-team" style="grid-column:2/-1">${z.code ? `<b class="zcode">${esc(z.code)}</b> · ` : ''}${(z.members || []).length ? avatars(z.members, 4, 'sm') + ' ' + esc(names(z.members)) : '<i class="todo">Aucune équipe</i>'} · ${pl(nStreets, 'rue')} · ${nf(g.total)} foyers</span></button>`;
 }
 /** Une rue dans « mes rues » : ce qu'il reste à y faire. */
 function streetMini(st) {
@@ -940,7 +941,7 @@ function evRow({ u, h }, timeOnly = false) {
 }
 function rankRow(m, b, i) {
   const zn = zones().filter((z) => (z.members || []).includes(m.id)).map((z) => z.name);
-  return `<button class="rank" data-act="member" data-v="${m.id}"><span class="pos">${i + 1}</span>${avatar(m.id)}<span class="nm"><b>${esc(m.name)}</b><small>${b?.streets.size || 0} rues · ${esc(zn.join(', ') || 'sans secteur')}</small></span><span class="vals"><b>${b?.doors || 0}</b><small>foyers</small></span></button>`;
+  return `<button class="rank" data-act="member" data-v="${m.id}"><span class="pos">${i + 1}</span>${avatar(m.id)}<span class="nm"><b>${esc(m.name)}</b><small>${pl(b?.streets.size || 0, 'rue')} · ${esc(zn.join(', ') || 'sans secteur')}</small></span><span class="vals"><b>${b?.doors || 0}</b><small>foyers</small></span></button>`;
 }
 
 // ═════════════════════════ Carte & rues
@@ -1028,7 +1029,7 @@ function streetRows() {
     return `<button class="street-row" data-act="street" data-v="${esc(st.sk)}"><div class="sr-top"><b>${esc(st.name)}</b><span>${r.visited}/${r.total}</span></div>${stackBar(r.st, r.total, 'sm')}<div class="sr-foot"><span class="grow">${info}</span>${r.members.size ? avatars([...r.members]) : ''}</div></button>`;
   };
   if (UI.sort !== 'alpha' || (Role.admin && UI.com)) return `<div class="street-list">${rows.map(card).join('')}</div>`;
-  return COMMUNES.map((c) => { const list = rows.filter((st) => st.com === c); return list.length ? `<h3 class="com-h">${esc(c)} <small>${list.length} rues</small></h3><div class="street-list">${list.map(card).join('')}</div>` : ''; }).join('');
+  return COMMUNES.map((c) => { const list = rows.filter((st) => st.com === c); return list.length ? `<h3 class="com-h">${esc(c)} <small>${pl(list.length, 'rue')}</small></h3><div class="street-list">${list.map(card).join('')}</div>` : ''; }).join('');
 }
 function bldTile(a, act = 'addr') {
   const us = unitsOf(a.id), sfx = a.num.split(' ').slice(1).join(' ');
@@ -1044,7 +1045,7 @@ function streetDetail(sk) {
   const z = [...new Set(own.map((a) => zoneOf(a.id)?.name).filter(Boolean))];
   return `
   <div class="sd-head"><button class="icon-btn" data-act="street-back" aria-label="Retour aux rues">${ico('chev-l')}</button><div class="plaque street">${esc(st.name)}</div></div>
-  <p class="muted" style="margin:-6px 0 0;font-weight:600">${esc(st.com)} · ${own.length} adresses · ${r.total} foyers${z.length ? ' · ' + esc(z.join(', ')) : ' · sans secteur'}</p>
+  <p class="muted" style="margin:-6px 0 0;font-weight:600">${esc(st.com)} · ${pl(own.length, 'adresse')} · ${pl(r.total, 'foyer')}${z.length ? ' · ' + esc(z.join(', ')) : ' · sans secteur'}</p>
   <div class="kpis">
     <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${r.total} foyers</span></div>
     <div class="kpi"><b>${r.st.done}</b><span>calendriers donnés</span></div>
@@ -1364,11 +1365,11 @@ function openStreetSheet(sk) {
     for (const a of st2.addrs) { const z = zoneOf(a.id); const k = z ? z.id : ''; inZ.set(k, (inZ.get(k) || 0) + 1); }
     const only = inZ.size === 1 ? [...inZ.keys()][0] : '';
     panel.innerHTML = `<div class="sheet-grab"></div>
-    <header class="sheet-head"><div class="t"><b>${esc(st2.name)}</b><small>${esc(st2.com)} · ${st2.addrs.filter(visibleAddr).length} adresses · ${r.total} foyers</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
+    <header class="sheet-head"><div class="t"><b>${esc(st2.name)}</b><small>${esc(st2.com)} · ${pl(st2.addrs.filter(visibleAddr).length, 'adresse')} · ${pl(r.total, 'foyer')}</small></div><button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button></header>
     <div class="sheet-body">
       ${stackBar(r.st, r.total)}
       <div class="kpis">
-        <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${r.total} foyers</span></div>
+        <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${pl(r.total, 'foyer')}</span></div>
         <div class="kpi"><b>${r.st.done}</b><span>donnés</span></div>
         <div class="kpi"><b>${r.st.todo}</b><span>à faire</span></div>
         <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>absents · repasses</span></div>
@@ -1453,7 +1454,7 @@ function drawUnitSheet() {
     ${p?.hist?.length ? `<div class="field"><span class="lbl">Historique du foyer</span><div class="timeline">${[...p.hist].reverse().map((h) => `<div class="tl" data-st="${h.s}"><b>${STATUS[h.s].short}</b><span class="muted">${dayLabel(isoDay(new Date(h.at)))} ${hhmm(h.at)}${h.by?.length ? ' · ' + esc(names(h.by)) : ''}</span></div>`).join('')}</div></div>` : ''}
     <details class="more"><summary>Habitation et secteur</summary><div>
       ${u.n > 1
-        ? `<div class="field"><label for="unit-label">Repère du logement</label><input id="unit-label" class="input" data-change="unit-label" data-id="${a.id}" data-k="${u.k}" value="${esc(u.label)}" placeholder="Ex. 1er étage gauche"></div><button class="btn ghost" data-act="as-bld">${ico('door')} Gérer l'immeuble · ${u.n} logements</button>`
+        ? `<div class="field"><label for="unit-label">Repère du logement</label><input id="unit-label" class="input" data-change="unit-label" data-id="${a.id}" data-k="${u.k}" value="${esc(u.label)}" placeholder="Ex. 1er étage gauche"></div><button class="btn ghost" data-act="as-bld">${ico('door')} Gérer l'immeuble · ${pl(u.n, 'logement')}</button>`
         : '<div class="set-row" style="border:0;padding:0"><div class="t"><b>Maison individuelle</b><small>Un immeuble ? Indiquez le nombre de logements.</small></div><button class="btn ghost sm" data-act="as-bld">Plusieurs logements</button></div>'}
       ${Role.admin ? zoneSelect(a.id) : ''}
     </div></details>
@@ -1578,7 +1579,7 @@ PAGES.reset = (args) => {
   return {
     title: 'Remettre à zéro',
     body: `<div class="stackv">
-    ${Store.demoOn ? '<div class="note-box"><b>Mode démo</b> : les deux premières remises à zéro sont sans effet ici. Quittez la démo pour les utiliser pour de vrai.</div>' : ''}
+    ${Store.demoOn ? '<div class="note-box"><b>Mode démo</b> : les remises à zéro de l’équipe sont sans effet ici. Quittez la démo pour les utiliser pour de vrai.</div>' : ''}
     <div class="note-box">${last ? `Dernière remise à zéro : ${dayLabel(isoDay(new Date(last)))} à ${hhmm(last)}.` : 'Aucune remise à zéro pour l’instant.'} ${nPass} foyer${nPass > 1 ? 's' : ''} noté${nPass > 1 ? 's' : ''} actuellement, ${members().length} pompiers, ${zones().length} secteurs.</div>
     ${admin ? `<button class="btn ghost block" data-act="export-json">${ico('download')} Sauvegarder avant d’effacer</button>` : ''}
 
@@ -1595,7 +1596,7 @@ PAGES.reset = (args) => {
       <p class="muted" style="margin:0 0 12px">Supprime <b>les ${zones().length} secteur${zones().length > 1 ? 's' : ''} et leurs codes</b>, pour refaire la répartition de zéro. Les pompiers, les adresses et tous les passages sont conservés. Les équipes qui ont déjà saisi leur code devront saisir le nouveau.</p>
       ${!admin ? '<div class="note-box">Réservé au responsable.</div>'
         : !zones().length ? '<div class="note-box">Aucun secteur pour l’instant.</div>'
-        : step === 'zones' ? `<div class="confirm"><p>Supprimer les ${zones().length} secteurs ? Sur tous les téléphones de l’équipe. Les passages déjà notés restent.</p><div class="grid2"><button class="btn ghost" data-act="reset-step" data-v="">Annuler</button><button class="btn red" data-act="reset-zones">Oui, effacer les secteurs</button></div></div>`
+        : step === 'zones' ? `<div class="confirm"><p>Supprimer les ${pl(zones().length, 'secteur')} ? Sur tous les téléphones de l’équipe. Les passages déjà notés restent.</p><div class="grid2"><button class="btn ghost" data-act="reset-step" data-v="">Annuler</button><button class="btn red" data-act="reset-zones">Oui, effacer les secteurs</button></div></div>`
         : `<button class="btn block" data-act="reset-step" data-v="zones">${ico('trash')} Effacer les secteurs</button>`}
     </section>
 
@@ -1652,7 +1653,7 @@ PAGES.history = (args) => {
     body: `<div class="stackv">
       <div class="chips scroll-x">${['all', 'done', 'absent', 'repasse', 'refus'].map((k) => `<button class="chip" data-act="hist-f" data-v="${k}" aria-pressed="${f === k}">${k === 'all' ? 'Tout' : `<span class="dot" data-st="${k}"></span>${STATUS[k].short}`}</button>`).join('')}</div>
       ${members().length ? `<select class="input" data-change="hist-member" aria-label="Membre"><option value="">Toute l'équipe</option>${members().map((x) => `<option value="${x.id}" ${m === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
-      ${ev.length ? [...groups].map(([k, list]) => `<section class="card"><div class="card-h"><h2>${dayLabel(k)}</h2><span class="muted">${list.length} passages</span></div><div class="mini-list" style="margin-top:0;border-top:0">${list.map((e) => evRow(e, true)).join('')}</div></section>`).join('') : '<div class="card empty"><b>Rien à afficher</b>Aucun passage ne correspond au filtre.</div>'}
+      ${ev.length ? [...groups].map(([k, list]) => `<section class="card"><div class="card-h"><h2>${dayLabel(k)}</h2><span class="muted">${pl(list.length, 'passage')}</span></div><div class="mini-list" style="margin-top:0;border-top:0">${list.map((e) => evRow(e, true)).join('')}</div></section>`).join('') : '<div class="card empty"><b>Rien à afficher</b>Aucun passage ne correspond au filtre.</div>'}
     </div>`,
   };
 };
@@ -1674,7 +1675,7 @@ PAGES.member = ({ id, confirm }) => {
         <div class="kpi card"><b>${bm.last ? dayShort(bm.last) : '—'}</b><span>dernier passage</span></div>
       </div>
       <p class="muted" style="margin:0;font-size:13px">${zn.length ? `Équipe : ${esc(zn.map((z) => names(z.members) || 'personne').join(' / '))} · secteur ${esc(zn.map((z) => z.name).join(', '))}.` : 'Aucun secteur attribué.'}</p>
-      <section class="card"><div class="card-h"><h2>Rues et maisons</h2><span class="muted">${sts.length} rues</span></div>
+      <section class="card"><div class="card-h"><h2>Rues et maisons</h2><span class="muted">${pl(sts.length, 'rue')}</span></div>
         ${sts.length ? sts.map(([sk, list]) => { const st = streetOf(sk); return `<div style="padding:10px 0;border-bottom:1px solid var(--line);display:grid;gap:8px"><div class="sr-top"><b>${esc(st?.name || sk)} <small class="muted" style="font-weight:600">${esc(st?.com || '')}</small></b><span class="muted" style="font:600 13px var(--f-body)">${list.length} foyer${list.length > 1 ? 's' : ''}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap">${[...list].sort((x, y) => numCmp(x.a, y.a) || x.k - y.k).map((u) => `<button class="dt sm" data-st="${statusOf(u.id)}" data-act="unit" data-id="${u.id}" aria-label="${esc(unitTitle(u))}">${esc(shortNum(u))}</button>`).join('')}</div></div>`; }).join('') : '<p class="muted" style="margin:0">Aucun passage enregistré.</p>'}
       </section>
       <section class="card"><div class="card-h"><h2>Derniers passages</h2></div>${recent.length ? `<div class="mini-list" style="margin-top:0;border-top:0">${recent.map((e) => evRow(e)).join('')}</div>` : '<p class="muted" style="margin:0">—</p>'}</section>
@@ -1819,9 +1820,10 @@ PAGES.codes = () => {
       <div class="cc-top"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="muted">${nf(g.total)} foyer${g.total > 1 ? 's' : ''} · ${nStreets} rue${nStreets > 1 ? 's' : ''}</span></div>
       <div class="cc-mid">
         <div class="cc-code"><small class="lbl">Code du secteur</small><div class="code-box">${z.code ? esc(z.code) : '— — — —'}</div><small class="muted">${(z.members || []).length ? esc(names(z.members)) : 'équipe à désigner'}</small></div>
-        ${Sync.code && z.code ? `<div class="qr">${qrSvg(joinLink(z.code))}</div>` : ''}
+        ${z.code && (Sync.code || Store.demoOn) ? `<div class="qr">${qrSvg(Store.demoOn ? location.origin + location.pathname : joinLink(z.code))}</div>` : ''}
       </div>
       <p class="cc-how">${!z.code ? 'Ce secteur n’a pas encore de code : touchez « Donner un code » en haut de cette page, puis réimprimez.'
+        : Store.demoOn ? `Démo : scannez le QR code pour ouvrir l’app, puis saisissez <b>${esc(z.code)}</b>.`
         : !Sync.code ? 'Reliez d’abord l’équipe à la feuille (Réglages › Équipe connectée), puis revenez imprimer ce billet.'
         : `Scannez le QR code avec l’appareil photo du téléphone : l’app s’ouvre déjà reliée à l’équipe et au secteur. Sinon, scannez le QR code de l’équipe et saisissez <b>${esc(z.code)}</b>.`}</p>
       ${[...byCom].map(([com, l]) => `<p class="cc-st"><b>${esc(com)}</b> : ${esc(l.join(', '))}</p>`).join('') || '<p class="cc-st muted">Aucune rue dans ce secteur pour l’instant.</p>'}
@@ -1832,7 +1834,7 @@ PAGES.codes = () => {
     body: `<div class="codes">
       <div class="no-print stackv" style="margin-bottom:18px">
         <div class="note-box">Un billet par secteur. Le QR code ouvre l’app déjà reliée à l’équipe ; le code à 4 chiffres donne les rues du secteur, et rien d’autre. Imprimez, découpez, et donnez à chaque équipe le billet de son secteur.</div>
-        ${!Sync.code ? '<div class="note-box"><b>L’équipe n’est pas encore reliée à la feuille.</b> Les QR codes apparaîtront après « Créer le code de l’équipe », dans Réglages › Équipe connectée.</div>' : ''}
+        ${!Sync.code && !Store.demoOn ? '<div class="note-box"><b>L’équipe n’est pas encore reliée à la feuille.</b> Les QR codes apparaîtront après « Créer le code de l’équipe », dans Réglages › Équipe connectée.</div>' : ''}
         ${dupCodes().length ? `<div class="note-box"><b>Le code ${esc(dupCodes().join(', '))} sert à deux secteurs.</b> Ouvrez « Préparer les secteurs » et donnez un nouveau code à l’un des deux : sans cela, leurs équipes ne verront rien.</div>` : ''}
         ${miss ? `<button class="btn block" data-act="codes-gen">${ico('plus')} ${miss > 1 ? `Donner un code aux ${miss} secteurs qui n’en ont pas` : 'Donner un code au secteur qui n’en a pas'}</button>` : ''}
         <div class="grid2"><button class="btn" data-act="print">${ico('grid')} Imprimer les billets</button><button class="btn ghost" data-act="page" data-v="prep">${ico('pen')} Modifier les secteurs</button></div>
@@ -1850,7 +1852,7 @@ PAGES.unassigned = () => {
     body: `<div class="stackv">
       ${miss.length ? `<div class="note-box"><b>${miss.length} adresse${miss.length > 1 ? 's' : ''}</b> n'appartien${miss.length > 1 ? 'nent' : 't'} à aucun secteur. Rangez-les rue par rue pour qu'aucune maison ne soit oubliée.</div>
         <div class="grid2"><button class="btn ghost" data-act="unassigned-map">${ico('map')} Voir sur la carte</button><button class="btn ghost" data-act="unassigned-new">${ico('plus')} Nouveau secteur</button></div>
-        ${[...by].sort((x, y) => (streetOf(x[0])?.ci ?? 99) - (streetOf(y[0])?.ci ?? 99)).map(([sk, list]) => { const st = streetOf(sk); return `<section class="card"><div class="sr-top"><b>${esc(st.name)}</b><span class="muted" style="font:600 13px var(--f-body)">${esc(st.com)}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">${list.map((a) => `<span class="dt sm">${esc(a.num)}</span>`).join('')}</div>${zs.length ? `<select class="input" data-change="assign-street" data-sk="${esc(sk)}" aria-label="Secteur pour ${esc(st.name)}"><option value="">Ranger ces ${list.length} adresses dans…</option>${zs.map((z) => `<option value="${z.id}">${esc(z.name)}</option>`).join('')}</select>` : ''}</section>`; }).join('')}`
+        ${[...by].sort((x, y) => (streetOf(x[0])?.ci ?? 99) - (streetOf(y[0])?.ci ?? 99)).map(([sk, list]) => { const st = streetOf(sk); return `<section class="card"><div class="sr-top"><b>${esc(st.name)}</b><span class="muted" style="font:600 13px var(--f-body)">${esc(st.com)}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">${list.map((a) => `<span class="dt sm">${esc(a.num)}</span>`).join('')}</div>${zs.length ? `<select class="input" data-change="assign-street" data-sk="${esc(sk)}" aria-label="Secteur pour ${esc(st.name)}"><option value="">Ranger ces ${pl(list.length, 'adresse')} dans…</option>${zs.map((z) => `<option value="${z.id}">${esc(z.name)}</option>`).join('')}</select>` : ''}</section>`; }).join('')}`
       : '<div class="card empty"><b>Aucune maison oubliée</b>Toutes les adresses sont rangées dans un secteur.</div>'}
     </div>`,
   };
@@ -2029,6 +2031,7 @@ const MapView = {
   size() {
     if (!this.map) return;
     const s = this.map.getSize(), dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    if (!s.x || !s.y) return; // vue cachée : on garde la dernière taille connue, une toile vide ferait planter le dessin
     if (this._w === s.x && this._h === s.y && this._dpr === dpr) return;
     this._w = s.x; this._h = s.y; this._dpr = dpr;
     this.canvas.width = Math.round(s.x * dpr); this.canvas.height = Math.round(s.y * dpr);
@@ -2237,6 +2240,7 @@ const MapView = {
     if (this._panning) return; // pendant le déplacement, la couche glisse telle quelle
     if (!this.map || !this.ctx || $('#v-map').hidden || UI.mapMode !== 'map') return;
     const map = this.map, ctx = this.ctx, W = this._w, H = this._h;
+    if (!W || !H || !this.canvas.width || !this.canvas.height) return; // pas encore mesurée (carte ouverte juste après un redimensionnement)
     ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0); ctx.clearRect(0, 0, W, H);
     const c = this._c, z = map.getZoom(), sat = this.layer === 'sat', L0 = this.lasso;
     const P = (lat, lon) => map.latLngToContainerPoint([lat, lon]);
