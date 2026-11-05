@@ -209,9 +209,8 @@ const Sync = {
       if (/incorrect/i.test(msg) && LS.get(K.made, '') === this.code) {
         // Ce téléphone a créé un code alors que l'équipe existe déjà : il doit la rejoindre (QR du responsable)
         this.stop(); this.code = ''; LS.del(K.code); LS.del(K.made); this.queue = {}; LS.set(K.queue, {}); this.set('local');
-        toast('Cette feuille appartient déjà à une équipe : saisissez son code (onglet Réglages de la feuille, cellule B2).', { ms: 10000 });
-        if (Page.cur === 'welcome') Page.set({ step: 'join' });
-        else if (!Page.cur && UI.view !== 'tour') Page.open('settings', { sec: 'sync' });
+        toast('La feuille Google a déjà une équipe. Pour partager, saisissez son code dans Réglages › Équipe connectée (il est dans l’onglet Réglages de la feuille, cellule B2).', { ms: 11000 });
+        if (Page.cur === 'settings') Page.refresh();
         return;
       }
       this.set(navigator.onLine ? 'error' : 'offline', msg);
@@ -1868,6 +1867,7 @@ PAGES.welcome = (args) => {
     <p>Un prénom par ligne. Vous pourrez en ajouter, en retirer ou en corriger à tout moment depuis l'onglet Répartition.</p>
     <form data-form="w-create" style="display:grid;gap:12px"><textarea class="input" name="names" rows="8" placeholder="Thomas K.&#10;Julie W.&#10;Nicolas B." aria-label="Liste des pompiers"></textarea><button class="btn red block" type="submit">Continuer</button></form>
     <button class="link" data-act="w-step" data-v="zones">Je donnerai les prénoms plus tard</button>
+    <button class="link" data-act="w-done">Passer cette étape</button>
   </div>` };
   if (step === 'code') return { bare: true, body: `<div class="welcome left">
     ${back('intro')}
@@ -1886,7 +1886,7 @@ PAGES.welcome = (args) => {
           <div class="set-row" style="border:0;padding:0"><div class="t"><b>Ou un découpage équilibré</b><small>Les rues restent entières · ≈ ${nf(Math.round(S.total / n))} foyers par secteur</small></div><div class="stepper" style="min-width:150px"><button data-act="auto-n" data-v="-1" aria-label="Un de moins">${ico('minus')}</button><b>${n}</b><button data-act="auto-n" data-v="1" aria-label="Un de plus">${ico('plus')}</button></div></div>
           <button class="btn ghost block" data-act="w-zones-auto">${ico('sparkle')} Créer ${n} secteurs équilibrés</button>
         </div>
-        <button class="link" data-act="w-step" data-v="who">Je répartirai plus tard</button>
+        <button class="link" data-act="w-done">Je répartirai plus tard</button>
       </div>
     </div>` };
   }
@@ -2466,6 +2466,7 @@ const OldIcon = {
 /** Accueil : tant que ce téléphone n'est pas relié à la feuille de l'équipe, on le dit en grand. */
 function linkCard() {
   if (Store.demoOn || !Sync.configured || Sync.code) return '';
+  if (!Role.admin && myZones().length) return ''; // il a déjà ses rues : rien à lui demander
   if (Role.admin) return `<section class="card fix-card">
     <div class="card-h"><h2>Relier l’équipe à la feuille</h2></div>
     <p class="muted" style="margin:0 0 12px">Rien n’est encore partagé : la répartition et les passages restent sur ce téléphone. Créez le code de l’équipe, puis faites scanner le QR code aux distributeurs.</p>
@@ -2725,8 +2726,8 @@ const A = {
   'hist-f': (el) => Page.set({ f: el.dataset.v }),
   'w-step': (el) => Page.set({ step: el.dataset.v }),
   'w-demo': () => { LS.set(K.welcomed, true); Page.close(); A['demo-enter'](); },
-  'w-zones-com': () => { A['auto-com'](); Page.set({ step: 'who' }); },
-  'w-zones-auto': () => { A['auto-go'](); Page.set({ step: 'who' }); },
+  'w-zones-com': () => { A['auto-com'](); A['w-done'](); },
+  'w-zones-auto': () => { A['auto-go'](); A['w-done'](); },
   'w-done': () => { LS.set(K.welcomed, true); if (!Role.chosen) Role.set('distrib'); Page.close(); go(Role.admin || Store.demoOn ? 'home' : 'map'); },
 };
 const FORMS = {
@@ -2745,13 +2746,19 @@ const FORMS = {
     if (st) { const t = streetTeamOf(st); assignStreetToPeople(sk, [...(t.shared ? [] : t.members), id]); }
     f.reset();
   },
-  'admin-code': async (f) => { if (await tryAdmin(f.elements.code.value)) { f.reset(); go('home'); toast('Accès responsable activé.'); await linkTeamIfNeeded(); } },
+  'admin-code': async (f) => { if (await tryAdmin(f.elements.code.value)) { f.reset(); if (Page.cur) Page.close(); go('home'); toast('Accès responsable activé.'); linkTeamIfNeeded(); } },
   'w-create': (f) => {
     const list = f.elements.names.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
     list.forEach(addMember);
-    Page.set({ step: zones().length ? 'who' : 'zones' });
+    if (zones().length) A['w-done'](); else Page.set({ step: 'zones' });
   },
-  'w-code': async (f) => { if (!(await tryAdmin(f.elements.code.value))) return; if (!(await linkTeamIfNeeded())) return; Page.set({ step: members().length ? (zones().length ? 'who' : 'zones') : 'create' }); },
+  'w-code': async (f) => {
+    if (!(await tryAdmin(f.elements.code.value))) return;
+    LS.set(K.welcomed, true);
+    if (!members().length || !zones().length) { Page.set({ step: zones().length ? 'create' : 'zones' }); } else { Page.close(); go('home'); }
+    toast('Accès responsable activé.');
+    linkTeamIfNeeded(); // en tâche de fond : l'accès ne dépend pas de la feuille
+  },
   join: (f) => {
     const n = f.elements.code.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!/^SEP[A-Z0-9]{8}$/.test(n)) { toast('Le code d’équipe ressemble à SEP-XXXX-XXXX. Le code d’accès responsable se saisit dans « Je suis le responsable ».'); return; }
