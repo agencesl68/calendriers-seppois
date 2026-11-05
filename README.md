@@ -8,11 +8,11 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour org
 | --- | --- | --- |
 | Pour qui | Ceux qui répartissent les rues | Tous ceux qui font les portes |
 | Comment | Code d'accès responsable | Un seul code : celui du billet |
-| Ce qu'il fait | Voit toute la carte en direct, prépare les secteurs, imprime les billets | Voit seulement les rues de son secteur (en rouge) et note à chaque porte « Calendrier donné » ou « À repasser » |
+| Ce qu'il fait | Voit toute la carte en direct, prépare les secteurs, imprime les billets | Voit seulement les rues de son secteur (en rouge) et note à chaque porte : calendrier donné, absent, à repasser ou refus |
 
 Ouvrir le lien amène toujours sur l'**écran de démarrage** : blason, choix de l'accès, et un bouton **Continuer** quand le téléphone est déjà réglé.
 
-À la première ouverture, le responsable touche **Je suis le responsable** et entre le code d'accès : son téléphone relie alors l'équipe au serveur de synchronisation. L'app propose ensuite une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
+À la première ouverture, le responsable touche **Je suis le responsable** et entre le code d'accès : son téléphone relie alors l'équipe au serveur de synchronisation. L'app propose ensuite une **répartition de départ** : un secteur par commune, ou un découpage équilibré (jusqu'à 20 secteurs par commune, les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
 
 Un distributeur n'a qu'une chose à faire : **saisir le code du billet**. L'écran de démarrage lui propose « J'ai un code · je distribue », un seul champ, puis la carte de ses rues s'affiche et il part porte après porte (n° 1, n° 2…). S'il scanne le QR code du billet, l'app s'ouvre déjà reliée et il n'a plus que les 4 chiffres à saisir ; sinon il peut taper le code d'équipe `SEP-XXXX-XXXX` du billet dans le même champ. Il ne voit ni la répartition, ni les autres secteurs. Pour passer responsable : **Réglages › Sur ce téléphone**, puis le code d'accès.
 
@@ -29,7 +29,7 @@ Tout se prépare à l'avance, sur un ordinateur ou sur le téléphone. Accès re
 
 ### 2. Attribuer les secteurs
 
-**Attribuer les secteurs** → on touche un secteur, on saisit les **noms et prénoms** des pompiers (un par ligne), on enregistre : l'app affiche le **code** du secteur et son **QR code**.
+**Attribuer les secteurs** → on touche un secteur, on saisit les **noms et prénoms** des pompiers (un par ligne), on enregistre : l'app affiche le **code** du secteur et son **QR code**. Les noms sont **facultatifs** : le code fonctionne même sans.
 
 **Imprimer les billets** sort une page par secteur (nom, code, QR code, liste des rues), à découper et à distribuer.
 
@@ -45,7 +45,7 @@ Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mo
 - **Répartition des rues**, le cœur de l'app, pour qu'aucune maison ne soit oubliée :
   - **par rue** : cocher une rue entière, un côté (pair ou impair) ou des maisons précises ;
   - **sur la carte** : toucher une rue pour l'ajouter ou la retirer entière, ou entourer des maisons au doigt ;
-  - **automatique** : un secteur par commune, ou des quartiers par village — vous choisissez le nombre de secteurs village par village, l'app découpe en blocs d'un seul tenant (nord, est, sud, ouest), rues entières et foyers équilibrés ;
+  - **automatique** : un secteur par commune, ou des quartiers par village — vous choisissez le nombre de secteurs village par village (jusqu'à 20), l'app découpe en blocs d'un seul tenant (nord, est, sud, ouest), rues entières et foyers équilibrés ;
   - une maison n'appartient qu'à **un seul** secteur ;
   - le compteur **« adresses sans équipe »** et la page pour les ranger rue par rue garantissent que tout est couvert ;
   - **Partager** copie la répartition en texte, prête à coller dans le groupe de l'amicale.

@@ -257,6 +257,8 @@ UI.tour = Object.assign({ street: null, near: false, order: 'sides', open: true,
 UI.street = null;
 const saveUI = () => LS.set(K.ui, { view: UI.view, mapMode: UI.mapMode, filter: UI.filter, zone: UI.zone, com: UI.com, sort: UI.sort, autoN: UI.autoN, autoK: UI.autoK, tour: UI.tour });
 
+/** Découpage automatique : nombre maximum de secteurs par commune (limité en plus par le nombre de rues). */
+const MAX_K = 20;
 const MAX_TEAM = 4;
 /** L'équipe qui tourne avec ce téléphone : 1 à 4 personnes (le plus souvent 2 ou 3). */
 const Me = {
@@ -658,7 +660,7 @@ function pipXY(x, y, poly) {
 function cluster(items, k) {
   const lat0 = 47.53, lon0 = 7.18, kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
   const P = items.map((it) => ({ ...it, x: (it.lon - lon0) * kx, y: (it.lat - lat0) * ky }));
-  const n = P.length; k = clamp(k, 1, Math.min(12, n));
+  const n = P.length; k = clamp(k, 1, Math.min(MAX_K, n));
   const W = sum(P, (p) => p.w), d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
   const cx = sum(P, (p) => p.x * p.w) / W, cy = sum(P, (p) => p.y * p.w) / W;
   const first = P.reduce((b, p) => (d2(p, { x: cx, y: cy }) > d2(b, { x: cx, y: cy }) ? p : b));
@@ -776,7 +778,7 @@ function growRegions(items, k) {
 /** Nombre de secteurs conseillé pour un village : environ 130 foyers chacun. */
 const comUnits = (com) => memo('cu:' + com, () => sum(addrs().filter((a) => a.com === com), (a) => unitsOf(a.id).length));
 const defaultK = (com) => clamp(Math.ceil(comUnits(com) / 130), 1, 8);
-const autoK = () => Object.fromEntries(COMMUNES.map((c) => [c, clamp((UI.autoK || {})[c] ?? defaultK(c), 1, 8)]));
+const autoK = () => Object.fromEntries(COMMUNES.map((c) => [c, clamp((UI.autoK || {})[c] ?? defaultK(c), 1, MAX_K)]));
 /** Découpe chaque village en k secteurs compacts, nommés nord / est / sud / ouest. */
 const DIR4 = ['nord', 'est', 'sud', 'ouest'];
 const DIR8 = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest'];
@@ -788,7 +790,7 @@ function villageGroups(ks) {
     const bySt = new Map();
     for (const a of list) { if (!bySt.has(a.sk)) bySt.set(a.sk, []); bySt.get(a.sk).push(a); }
     const items = [...bySt.values()].map((arr) => ({ ids: arr.map((a) => a.id), w: sum(arr, (a) => unitsOf(a.id).length), lat: sum(arr, (a) => a.lat) / arr.length, lon: sum(arr, (a) => a.lon) / arr.length }));
-    const kk = clamp(typeof per === 'number' ? per : per[com] || 1, 1, Math.min(items.length, 8));
+    const kk = clamp(typeof per === 'number' ? per : per[com] || 1, 1, Math.min(items.length, MAX_K));
     const groups = growRegions(items, kk).filter((g) => g.length);
     const c = [sum(list, (a) => a.lat) / list.length, sum(list, (a) => a.lon) / list.length];
     const kx = Math.cos((c[0] * Math.PI) / 180);
@@ -1320,10 +1322,6 @@ function renderTour() {
   requestAnimationFrame(() => { const c = $('.tour-strip [aria-current="true"]'); if (c) c.parentElement.scrollLeft = c.offsetLeft - c.parentElement.clientWidth / 2 + 22; });
 }
 function tourActs() {
-  if (!Role.admin) return `<div class="acts two">
-    <button class="act big" data-st="done" data-act="td-done">${ico('check')} Calendrier donné</button>
-    <button class="act big" data-st="repasse" data-act="td-repasse">${ico('repeat')} À repasser</button>
-  </div>`;
   return `<div class="acts">
     <button class="act big" data-st="done" data-act="td-done">${ico('check')} Calendrier donné</button>
     <button class="act" data-st="absent" data-act="td-later" data-v="absent">${ico('absent')}Absent</button>
@@ -1595,9 +1593,8 @@ function drawUnitSheet() {
     <button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button>
   </header>
   <div class="sheet-body">
-    <div class="st-pick">${(Role.admin ? ['done', 'absent', 'repasse', 'refus'] : ['done', 'repasse']).map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
-    ${!Role.admin && d.status === 'repasse' ? `<input class="input" data-bind="rp.note" value="${esc(d.rp.note)}" placeholder="Note pour la repasse (ex. revenir après 18 h)" aria-label="Consigne pour la repasse">`
-    : d.status === 'absent' || d.status === 'repasse' ? `
+    <div class="st-pick">${['done', 'absent', 'repasse', 'refus'].map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
+    ${d.status === 'absent' || d.status === 'repasse' ? `
       <div class="field"><span class="lbl">${d.status === 'absent' ? 'Programmer une repasse (facultatif)' : 'Quand repasser ?'}</span>
         <div class="chips wrap">${d.status === 'absent' ? `<button class="chip" data-act="as-rpdate" data-v="" aria-pressed="${!d.rp.date}">Pas de repasse</button>` : ''}${dateChoices().map(([v, l]) => `<button class="chip" data-act="as-rpdate" data-v="${v}" aria-pressed="${d.rp.date === v}">${l}</button>`).join('')}<label class="chip date-chip">${ico('cal', 'sm')}<input type="date" data-bind="rp.date" value="${esc(d.rp.date)}" aria-label="Autre date"></label></div>
       </div>
@@ -1949,7 +1946,7 @@ PAGES.assign = (args) => {
         </section>
         <section class="card">
           <div class="card-h"><h2>Qui fait ce secteur</h2></div>
-          <p class="muted" style="margin:0 0 12px">Les noms et prénoms des pompiers de ce secteur, un par ligne.</p>
+          <p class="muted" style="margin:0 0 12px">Les noms et prénoms des pompiers de ce secteur, un par ligne. <b>Facultatif</b> : le code du secteur marche même sans aucun nom.</p>
           <form data-form="assign-people" data-z="${z.id}" style="display:grid;gap:10px">
             <textarea class="input" name="names" rows="3" placeholder="Thomas Keller&#10;Julie Wagner" autocomplete="off">${esc((z.members || []).map((m) => member(m)?.name).filter(Boolean).join('\n'))}</textarea>
             <button class="btn" type="submit">${ico('check')} Enregistrer et générer le code</button>
@@ -2838,7 +2835,7 @@ const A = {
   unit: (el) => { const u = unitIdx().get(el.dataset.id); if (u) openUnit(u.id, { status: el.dataset.status, tour: BS?.opts?.tour }); },
   'bld-n': (el) => { const a = BS?.id; if (a) setBld(a, unitsOf(a).length + +el.dataset.v); },
   'as-bld': () => { const u = unitIdx().get(AS.id), tour = AS.opts.tour; Sheet.close(); openBuilding(u.a.id, { tour }); },
-  'as-status': (el) => { AS.d.status = el.dataset.v; if (AS.d.status === 'repasse' && !AS.d.rp.date && Role.admin) AS.d.rp.date = addDays(isoDay(), 1); drawUnitSheet(); },
+  'as-status': (el) => { AS.d.status = el.dataset.v; if (AS.d.status === 'repasse' && !AS.d.rp.date) AS.d.rp.date = addDays(isoDay(), 1); drawUnitSheet(); },
   'as-rpdate': (el) => { AS.d.rp.date = el.dataset.v; drawUnitSheet(); },
   'as-slot': (el) => { AS.d.rp.slot = AS.d.rp.slot === el.dataset.v ? '' : el.dataset.v; drawUnitSheet(); },
   'as-by': (el) => { const v = el.dataset.v, by = AS.d.by; AS.d.by = by.includes(v) ? by.filter((x) => x !== v) : [...by, v]; drawUnitSheet(); },
@@ -2992,7 +2989,7 @@ const A = {
   'sector-clear': () => { Sector.clear(); toast('Secteur retiré de ce téléphone.'); },
   'auto-open': () => { UI.auto = !UI.auto; App.changed(); },
   'auto-show': () => { UI.auto = true; if (Page.cur) Page.close(); go('team'); setTimeout(() => $('#v-team [data-act="auto-go"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80); },
-  'auto-k': (el) => { const c = el.dataset.com, k = autoK(); UI.autoK = { ...(UI.autoK || {}), [c]: clamp(k[c] + +el.dataset.v, 1, 8) }; saveUI(); if (Page.cur) Page.render(false); App.changed(); },
+  'auto-k': (el) => { const c = el.dataset.com, k = autoK(); UI.autoK = { ...(UI.autoK || {}), [c]: clamp(k[c] + +el.dataset.v, 1, MAX_K) }; saveUI(); if (Page.cur) Page.render(false); App.changed(); },
   'auto-reset-k': () => { UI.autoK = {}; saveUI(); if (Page.cur) Page.render(false); App.changed(); },
   'auto-com': () => { replaceZones(COMMUNES.map((c) => addrs().filter((a) => a.com === c).map((a) => a.id)), (ids, i) => COMMUNES[i]); UI.auto = false; App.changed(); toast(`${COMMUNES.length} secteurs créés, un par commune. Affectez une équipe à chacun.`); },
   'auto-go': () => {
