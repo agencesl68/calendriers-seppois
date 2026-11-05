@@ -12,7 +12,7 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour org
 
 Ouvrir le lien amène toujours sur l'**écran de démarrage** : blason, choix de l'accès, et un bouton **Continuer** quand le téléphone est déjà réglé.
 
-À la première ouverture, le responsable touche **Je suis le responsable** et entre le code d'accès : son téléphone relie alors l'équipe à la feuille Google. L'app propose ensuite une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
+À la première ouverture, le responsable touche **Je suis le responsable** et entre le code d'accès : son téléphone relie alors l'équipe au serveur de synchronisation. L'app propose ensuite une **répartition de départ** : un secteur par commune, ou un découpage équilibré en 2 à 12 secteurs (les rues restent entières). Il n'y a plus qu'à ajuster et à nommer les équipes.
 
 Un distributeur n'a qu'une chose à faire : **saisir le code du billet**. L'écran de démarrage lui propose « J'ai un code · je distribue », un seul champ, puis la carte de ses rues s'affiche et il part porte après porte (n° 1, n° 2…). S'il scanne le QR code du billet, l'app s'ouvre déjà reliée et il n'a plus que les 4 chiffres à saisir ; sinon il peut taper le code d'équipe `SEP-XXXX-XXXX` du billet dans le même champ. Il ne voit ni la répartition, ni les autres secteurs. Pour passer responsable : **Réglages › Sur ce téléphone**, puis le code d'accès.
 
@@ -37,7 +37,7 @@ Tout se prépare à l'avance, sur un ordinateur ou sur le téléphone. Accès re
 
 Le distributeur ouvre le lien, touche **J'ai un code · je distribue** et saisit le code du billet — ou scanne simplement son QR code. Il voit alors la carte de **ses** rues et fait ses portes, n° 1, n° 2… Il ne voit ni la répartition, ni les autres secteurs.
 
-Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mot de passe. Ce qui protège les données, c'est la feuille Google gardée privée et le code d'équipe donné aux seuls pompiers.
+Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mot de passe. Ce qui protège les données, c'est le code d'équipe, donné aux seuls pompiers.
 
 ## Ce que fait l'app
 
@@ -90,28 +90,22 @@ Les trois premières valent **pour toute l'équipe** : tous les téléphones sui
 
 Sans autre réglage, l'app marche déjà, mais chaque téléphone garde ses propres données.
 
-## 2. Rassembler les données de toute l'équipe dans Google Sheets (gratuit)
+## 2. Rassembler les données de toute l'équipe (gratuit)
 
-Toutes les données sont réunies dans **une feuille Google Sheets de votre Drive**. Pas d'abonnement, pas d'opérations comptées. Le chef d'équipe fait cette mise en place une seule fois, en 5 minutes.
+Toutes les données de l'équipe sont réunies sur un **serveur de synchronisation Supabase** (gratuit) : la fonction `cal_sync` du projet, qui range les passages dans la table `cal_items`, cloisonnés par code d'équipe. L'adresse est déjà dans [`config.js`](config.js) : **il n'y a rien à installer**.
 
-1. Ouvrez **[sheets.new](https://sheets.new)** et nommez la feuille, par exemple « Calendriers 2027 ».
-2. Menu **Extensions → Apps Script**. Effacez le contenu, collez tout le fichier [`google-apps-script/Code.gs`](google-apps-script/Code.gs), puis enregistrez (icône disquette).
-3. Cliquez sur **Déployer → Nouveau déploiement**. Avec la roue dentée, choisissez le type **Application Web**, puis réglez :
-   - **Exécuter en tant que** : Moi
-   - **Qui a accès** : Tout le monde
-4. Cliquez sur **Déployer**, puis **Autoriser l'accès** et choisissez votre compte Google. Si Google affiche « Application non validée », cliquez sur **Paramètres avancés**, puis **Accéder à … (non sécurisé)**. C'est votre propre script.
-5. Copiez l'**URL de l'application Web**, celle qui finit par `/exec`.
-6. Dans l'app, ouvrez **Réglages → Équipe connectée**, collez l'adresse, puis **Relier** et **Créer le code de l'équipe**. Un code `SEP-XXXX-XXXX` et un **QR code** s'affichent.
-7. Les autres pompiers scannent ce QR code avec l'appareil photo de leur téléphone. L'app s'ouvre déjà reliée à l'équipe ; ils choisissent leur nom et c'est parti.
+1. Accès responsable, puis **Réglages → Équipe connectée → Créer le code de l'équipe**. Un code `SEP-XXXX-XXXX` et un **QR code** s'affichent.
+2. Les autres pompiers scannent ce QR code avec l'appareil photo de leur téléphone. L'app s'ouvre déjà reliée à l'équipe ; ils choisissent leur nom et c'est parti.
 
-**Facultatif** : dans Apps Script, choisissez la fonction `installer` puis **Exécuter**. Deux onglets lisibles apparaissent dans la feuille et se mettent à jour toutes les 10 minutes :
+Les téléphones se synchronisent toutes les 20 secondes quand l'app est ouverte. Sans réseau, les passages sont gardés et envoyés au retour du réseau. Le serveur ne rend que les données du code d'équipe fourni : deux amicales peuvent utiliser la même app sans se voir.
 
-- **Tableau** : une ligne par foyer visité (commune, rue, n°, logement, statut, fait par, date, repasse, consigne, secteur, équipe) ;
-- **Répartition** : qui fait quel secteur, puis les foyers par statut, par commune et par pompier.
+> **Gardez le code d'équipe.** Il n'existe que sur les téléphones et sur les billets. Si tous les téléphones sont effacés, les données restent sur le serveur mais il faut le code pour les retrouver.
 
-Le menu **Calendriers** de la feuille permet aussi de les mettre à jour à la demande.
+La clé publiée dans `config.js` (`syncKey`) est **prévue pour être publique** : la table est fermée en accès direct, seule la fonction `cal_sync` y donne accès, et uniquement pour le code d'équipe transmis.
 
-Les téléphones se synchronisent toutes les 20 secondes quand l'app est ouverte. Sans réseau, les passages sont gardés et envoyés au retour du réseau. La feuille n'accepte que le code de votre équipe. L'adresse du script, elle, est publique (dans `config.js`) : gardez donc la feuille en accès **Limité** (voir Vie privée) et le code d'équipe pour vous.
+### Ancien serveur Google Sheets
+
+L'app accepte toujours une adresse Apps Script (`…/exec`) dans **Réglages › Équipe connectée** : le fichier [`google-apps-script/Code.gs`](google-apps-script/Code.gs) et sa procédure d'installation restent valables. Attention à son défaut : la feuille grave le **premier** code reçu dans l'onglet *Réglages*, cellule **B2**, et refuse ensuite tous les autres.
 
 ## 3. Installer l'app sur le téléphone
 
@@ -120,11 +114,11 @@ Les téléphones se synchronisent toutes les 20 secondes quand l'app est ouverte
 
 ## 4. Publier une mise à jour
 
-Avant d'envoyer les fichiers modifiés sur GitHub, changez la valeur de `VERSION` en haut de [`sw.js`](sw.js), par exemple `cal-2026-11-02a`. Pour une nouvelle version du script Google, ouvrez **Déployer → Gérer les déploiements**, cliquez sur le crayon, choisissez **Nouvelle version**, puis **Déployer**. L'adresse `/exec` reste la même.
+Avant d'envoyer les fichiers modifiés sur GitHub, changez la valeur de `VERSION` en haut de [`sw.js`](sw.js), par exemple `cal-2026-11-02a`. Rien à redéployer côté serveur : il est indépendant de l'app.
 
 ## Vie privée
 
-Le nom de l'occupant est **facultatif** : ne le notez que si c'est utile pour repasser. Les données restent dans les téléphones et dans votre feuille Google. **Gardez la feuille privée** (Partager › Accès général : *Limité*) : le script la lit pour vous, personne d'autre n'a besoin du lien. À la fin de la campagne, effacez les noms dans la feuille.
+Le nom de l'occupant est **facultatif** : ne le notez que si c'est utile pour repasser. Les données restent dans les téléphones et sur le serveur de synchronisation, où elles ne sont accessibles qu'avec le code de l'équipe. À la fin de la campagne, lancez *Nouvelle campagne* pour repartir propre.
 
 ## Sources et licences
 
@@ -141,8 +135,8 @@ Le nom de l'occupant est **facultatif** : ne le notez que si c'est utile pour re
 | `styles.css` | Apparence (thèmes clair et sombre) |
 | `app.js` | Toute la logique : répartition, tournée, carte, repasses, accès, synchronisation |
 | `data.js` | Adresses des 5 communes et plan des villages (générés depuis la BAN et OpenStreetMap) |
-| `config.js` | Adresse du script Google (facultatif, on peut aussi la coller dans l'app) |
-| `google-apps-script/Code.gs` | Serveur gratuit à coller dans la feuille Google Sheets |
+| `config.js` | Adresse du serveur de synchronisation et clé publique |
+| `google-apps-script/Code.gs` | Ancien serveur Google Sheets (toujours compatible) |
 | `sw.js` | Fonctionnement hors ligne |
 | `manifest.webmanifest`, `icons/` | Installation sur l'écran d'accueil |
 | `vendor/` | Bibliothèques incluses (rien à installer) |

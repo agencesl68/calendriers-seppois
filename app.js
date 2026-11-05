@@ -150,12 +150,16 @@ const Store = {
   },
 };
 
+/** Adresses de synchronisation acceptées : fonction Supabase (actuelle) ou script Google (historique). */
+const SYNC_URL_OK = /^https:\/\/(?:[a-z0-9-]+\.supabase\.co\/rest\/v1\/rpc\/|script\.google(?:usercontent)?\.com\/)\S+/;
+
 // ═════════════════════════ Synchronisation d'équipe : feuille Google Sheets (gratuite)
 const Sync = {
   code: LS.get(K.code, ''), queue: LS.get(K.queue, {}), since: +LS.get(K.since, 0) || 0, sheet: LS.get(K.sheet, ''),
   state: 'local', err: '', lastOk: 0, timer: 0, _t: 0, _busy: false, gen: 0,
   url() { const o = LS.get(K.cfg, {}); return String(o.url || (window.CAL_CONFIG || {}).sheetUrl || '').trim(); },
-  get configured() { return /^https:\/\/script\.google(usercontent)?\.com\/.+/.test(this.url()); },
+  get configured() { return SYNC_URL_OK.test(this.url()); },
+  get pg() { return /\/rest\/v1\/rpc\//.test(this.url()); }, // serveur Supabase (sinon : ancien script Google)
   get pending() { return Object.keys(this.queue).length; },
   start() {
     this.stop();
@@ -180,10 +184,15 @@ const Sync = {
   async call(body) {
     const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 35000);
     try {
-      const res = await fetch(this.url(), { method: 'POST', body: JSON.stringify(body), signal: ctl.signal });
-      if (!res.ok) throw new Error(`Feuille injoignable (erreur ${res.status})`);
-      const j = await res.json();
-      if (!j.ok) throw new Error(j.error || 'Réponse inattendue de la feuille');
+      const key = String((window.CAL_CONFIG || {}).syncKey || '');
+      const opt = this.pg
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
+            body: JSON.stringify({ p_code: body.code, p_since: body.since, p_items: body.items }), signal: ctl.signal }
+        : { method: 'POST', body: JSON.stringify(body), signal: ctl.signal };
+      const res = await fetch(this.url(), opt);
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((j && (j.error || j.message)) || `Serveur injoignable (erreur ${res.status})`);
+      if (!j || !j.ok) throw new Error((j && (j.error || j.message)) || 'Réponse inattendue du serveur');
       return j;
     } finally { clearTimeout(t); }
   },
@@ -209,11 +218,11 @@ const Sync = {
       this.lastOk = Date.now(); this.set('online');
     } catch (e) {
       if (gen !== this.gen) return;
-      const msg = e?.name === 'AbortError' ? 'La feuille met trop de temps à répondre' : e?.message || String(e);
+      const msg = e?.name === 'AbortError' ? 'Le serveur met trop de temps à répondre' : e?.message || String(e);
       if (/incorrect/i.test(msg) && LS.get(K.made, '') === this.code) {
         // Ce téléphone a créé un code alors que l'équipe existe déjà : il doit la rejoindre (QR du responsable)
         this.stop(); this.code = ''; LS.del(K.code); LS.del(K.made); this.queue = {}; LS.set(K.queue, {}); this.set('local');
-        toast('La feuille Google a déjà une équipe. Pour partager, saisissez son code dans Réglages › Équipe connectée (il est dans l’onglet Réglages de la feuille, cellule B2).', { ms: 11000 });
+        toast('Ce serveur a déjà une équipe. Pour partager, saisissez son code dans Réglages › Équipe connectée.', { ms: 9000 });
         if (Page.cur === 'settings') Page.refresh();
         return;
       }
@@ -1787,7 +1796,7 @@ function syncSection() {
       ${/^https:\/\/docs\.google\.com\//.test(Sync.sheet) ? `<a class="btn ghost" href="${esc(Sync.sheet)}" target="_blank" rel="noopener">${ico('grid')} Ouvrir la feuille Google</a>` : ''}
       <div class="set-row" style="border:0;padding-bottom:0"><div class="t"><b>${Sync.pending ? `${Sync.pending} modification${Sync.pending > 1 ? 's' : ''} en attente d'envoi` : 'Tout est envoyé'}</b><small>${Sync.lastOk ? 'Dernière synchro à ' + hhmm(Sync.lastOk) : 'Pas encore synchronisé'}${Sync.err ? ' · ' + esc(Sync.err) : ''}</small></div></div></div>`;
   }
-  h += `<details class="more" style="margin-top:12px" ${!code ? 'open' : ''}><summary>Rejoindre une équipe existante</summary><div>${!code ? '<p class="muted" style="margin:0 0 10px;font-size:13px">Le code de l’équipe est dans la feuille Google, onglet <b>Réglages</b>, cellule <b>B2</b>.</p>' : ''}<form data-form="join" style="display:grid;gap:10px"><input class="input" name="url" placeholder="Adresse de la feuille (…/exec)" value="${esc(Sync.url())}" autocomplete="off" aria-label="Adresse du script Google"><input class="input" name="code" placeholder="SEP-XXXX-XXXX" autocomplete="off" autocapitalize="characters" aria-label="Code d'équipe"><button class="btn" type="submit">Rejoindre</button></form><p class="muted" style="margin:0;font-size:13px">Plus simple : scannez le QR code du chef d'équipe.</p></div></details>`;
+  h += `<details class="more" style="margin-top:12px" ${!code ? 'open' : ''}><summary>Rejoindre une équipe existante</summary><div>${!code ? '<p class="muted" style="margin:0 0 10px;font-size:13px">Le code de l’équipe est sur le téléphone du responsable (Réglages › Équipe connectée) et sur les billets.</p>' : ''}<form data-form="join" style="display:grid;gap:10px"><input class="input" name="url" placeholder="Adresse du serveur de synchronisation" value="${esc(Sync.url())}" autocomplete="off" aria-label="Adresse du script Google"><input class="input" name="code" placeholder="SEP-XXXX-XXXX" autocomplete="off" autocapitalize="characters" aria-label="Code d'équipe"><button class="btn" type="submit">Rejoindre</button></form><p class="muted" style="margin:0;font-size:13px">Plus simple : scannez le QR code du chef d'équipe.</p></div></details>`;
   if (configured) h += `<details class="more" style="margin-top:6px"><summary>Changer de feuille</summary><div><form class="street-tools" data-form="sheet-url"><input class="input" name="url" value="${esc(Sync.url())}" autocomplete="off" aria-label="Adresse du script Google"><button class="btn ghost" type="submit">Enregistrer</button></form></div></details>`;
   return h;
 }
@@ -2122,7 +2131,7 @@ PAGES.welcome = (args) => {
     ${back('intro')}
     <h1 class="w-title sm">Rejoindre</h1>
     <p>Le plus simple : scannez le QR code du responsable avec l'appareil photo. Sinon, saisissez ${Sync.configured ? 'le code de l’équipe' : 'l’adresse de la feuille et le code de l’équipe'}.</p>
-    <form data-form="join" style="display:grid;gap:12px">${Sync.configured ? `<input type="hidden" name="url" value="${esc(Sync.url())}">` : '<input class="input" name="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" aria-label="Adresse de la feuille">'}<input class="input code-input" name="code" placeholder="SEP-XXXX-XXXX" autocapitalize="characters" autocomplete="off" aria-label="Code d'équipe" required><button class="btn red block" type="submit">Rejoindre</button></form>
+    <form data-form="join" style="display:grid;gap:12px">${Sync.configured ? `<input type="hidden" name="url" value="${esc(Sync.url())}">` : '<input class="input" name="url" placeholder="Adresse du serveur de synchronisation" autocomplete="off" aria-label="Adresse du serveur">'}<input class="input code-input" name="code" placeholder="SEP-XXXX-XXXX" autocapitalize="characters" autocomplete="off" aria-label="Code d'équipe" required><button class="btn red block" type="submit">Rejoindre</button></form>
   </div>` };
   if (step === 'secteur') {
     const needTeam = Sync.configured && !Sync.code && !Store.demoOn;
@@ -3098,17 +3107,17 @@ const FORMS = {
   },
   'sheet-url': async (f) => {
     const url = f.elements.url.value.trim();
-    if (!/^https:\/\/script\.google(usercontent)?\.com\/.+/.test(url)) { toast("Adresse incorrecte : copiez l'adresse « Application Web » qui finit par /exec."); return; }
-    toast('Vérification de la feuille…', { ms: 2000 });
+    if (!SYNC_URL_OK.test(url)) { toast("Adresse incorrecte : collez l'adresse de synchronisation fournie avec l'app."); return; }
+    toast('Vérification du serveur…', { ms: 2000 });
     try {
-      const res = await fetch(url); const j = await res.json();
-      if (!j.ok) throw new Error('réponse');
+      // La fonction Supabase ne répond qu'en POST : son adresse est vérifiée par la première synchro.
+      if (!/\/rest\/v1\/rpc\//.test(url)) { const res = await fetch(url); const j = await res.json(); if (!j.ok) throw new Error('réponse'); }
       const moved = url !== Sync.url();
       setSheetUrl(url);
       if (moved) { Sync.sheet = ''; LS.del(K.sheet); } // le lien vers la feuille revient avec la première synchro
       if (Sync.code) { if (moved) { Sync.since = 0; LS.del(K.since); Sync.enqueueAll(); } Sync.start(); }
       Page.refresh(); toast(Sync.code ? 'Feuille reliée.' : 'Feuille reliée. Créez maintenant le code de l’équipe.');
-    } catch (e) { toast('La feuille ne répond pas. Vérifiez le déploiement : accès « Tout le monde », puis réessayez.'); }
+    } catch (e) { toast('Le serveur ne répond pas. Vérifiez l’adresse, puis réessayez.'); }
   },
   'assign-people': (f) => {
     const z = Store.s.zones[f.dataset.z]; if (!z || !Role.admin) return;
