@@ -16,29 +16,28 @@ Ouvrir le lien amène toujours sur l'**écran de démarrage** : blason, choix de
 
 Un distributeur n'a qu'une chose à faire : **saisir le code du billet**. L'écran de démarrage lui propose « J'ai un code · je distribue », un seul champ, puis la carte de ses rues s'affiche et il part porte après porte (n° 1, n° 2…). S'il scanne le QR code du billet, l'app s'ouvre déjà reliée et il n'a plus que les 4 chiffres à saisir ; sinon il peut taper le code d'équipe `SEP-XXXX-XXXX` du billet dans le même champ. Il ne voit ni la répartition, ni les autres secteurs. Pour passer responsable : **Réglages › Sur ce téléphone**, puis le code d'accès.
 
-## Préparer les secteurs (sur ordinateur)
+## Préparer les secteurs
 
-Tout se prépare à l'avance, tranquillement, sur un ordinateur : ouvrez le lien de l'app dans le navigateur, entrez le code d'accès responsable, puis **Réglages › Secteurs › Préparer les secteurs** (ou l'onglet **Répartition**).
+Tout se prépare à l'avance, sur un ordinateur ou sur le téléphone. Accès responsable (code à 4 chiffres), puis deux boutons sur l'accueil :
 
-1. **Nouveau secteur**, puis donnez-lui son nom : « Mooslargue nord », « Mooslargue sud »…
-2. **Choisissez ses rues** : un clic sur une rue dans la liste la prend **en entier** (le **+** à droite ouvre la rue pour choisir un côté ou quelques maisons). Ou touchez **Choisir sur la carte** : **clic droit** sur une rue la prend entière (clic droit maintenu pour entourer plusieurs maisons), **clic gauche** déplace la carte comme sur n'importe quel plan, la molette zoome. Le bouton **Maison par maison** sert aux cas particuliers. Sur téléphone : appuyez pour choisir, glissez pour déplacer, pincez pour zoomer. **Terminer** revient au secteur. Filtrez par commune, cherchez une rue, ou ouvrez une rue pour ne prendre qu'un **côté** (pair ou impair) ou quelques maisons. Une maison n'appartient qu'à un seul secteur : la cocher ici la retire automatiquement de l'autre.
-3. Facultatif : la **couleur** sur la carte et les **prénoms** de l'équipe.
-4. L'app donne à chaque secteur un **code à 4 chiffres**. Chaque geste est enregistré tout de suite : il n'y a rien à valider.
-5. **Codes à distribuer** : une page avec **un billet par secteur** (code, QR code, liste des rues). Imprimez-la, découpez, et donnez à chaque équipe le billet de son secteur.
+### 1. Créer un secteur
 
-Le jour de la tournée, l'équipe scanne le QR code de son billet avec l'appareil photo du téléphone : l'app s'ouvre déjà reliée à l'équipe **et** à son secteur. Si elle scanne le QR code général (Réglages › Équipe connectée), il lui suffit de saisir les 4 chiffres. Pour changer de secteur ensuite : **Réglages › Mon secteur**.
+1. **Créer un secteur** → on saisit son **nom** : « Seppois nord », « Seppois sud », « Mooslargue »…
+2. **Choisir les rues sur la carte** → la carte s'ouvre. On se déplace (clic gauche maintenu, molette pour zoomer), on **touche une rue** : son nom et son nombre de maisons s'affichent.
+3. **Ajouter au secteur** → la rue entière entre dans le secteur. On recommence rue après rue. « Annuler la dernière » corrige une erreur.
+4. **Valider le secteur** → le secteur est enregistré, avec son **code à 4 chiffres**.
+
+### 2. Attribuer les secteurs
+
+**Attribuer les secteurs** → on touche un secteur, on saisit les **noms et prénoms** des pompiers (un par ligne), on enregistre : l'app affiche le **code** du secteur et son **QR code**.
+
+**Imprimer les billets** sort une page par secteur (nom, code, QR code, liste des rues), à découper et à distribuer.
+
+### 3. Le jour de la tournée
+
+Le distributeur ouvre le lien, touche **J'ai un code · je distribue** et saisit le code du billet — ou scanne simplement son QR code. Il voit alors la carte de **ses** rues et fait ses portes, n° 1, n° 2… Il ne voit ni la répartition, ni les autres secteurs.
 
 Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mot de passe. Ce qui protège les données, c'est la feuille Google gardée privée et le code d'équipe donné aux seuls pompiers.
-
-### Changer le code d'accès responsable
-
-Le code n'est écrit nulle part dans le dépôt : `config.js` ne contient que son empreinte (`adminHash`). Choisissez **uniquement des chiffres** (le clavier de l'app est numérique), générez l'empreinte puis remplacez la ligne `adminHash` de `config.js` :
-
-```bash
-node -e "const c=require('crypto'),code=process.argv[1].toUpperCase().replace(/[^A-Z0-9]/g,''),s=c.randomBytes(16);console.log('pbkdf2\$150000\$'+s.toString('base64')+'\$'+c.pbkdf2Sync(code,s,150000,32,'sha256').toString('base64'))" 4321
-```
-
-Ce code sépare les deux interfaces ; ce n'est pas une protection forte (un code à 4 chiffres se retrouve à partir de l'empreinte).
 
 ## Ce que fait l'app
 

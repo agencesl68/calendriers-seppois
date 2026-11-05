@@ -221,7 +221,9 @@ const Sync = {
   },
 };
 const genCode = () => { const al = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; const r = crypto.getRandomValues(new Uint32Array(8)); let s = ''; for (let i = 0; i < 8; i++) s += al[r[i] % al.length]; return `SEP-${s.slice(0, 4)}-${s.slice(4)}`; };
-const joinLink = (zcode = '') => `${location.origin}${location.pathname}#join=${encodeURIComponent(Sync.code)}&s=${encodeURIComponent(Sync.url())}${zcode ? '&z=' + encodeURIComponent(zcode) : ''}`;
+const joinLink = (zcode = '') => (Sync.code
+  ? `${location.origin}${location.pathname}#join=${encodeURIComponent(Sync.code)}&s=${encodeURIComponent(Sync.url())}${zcode ? '&z=' + encodeURIComponent(zcode) : ''}`
+  : `${location.origin}${location.pathname}${zcode ? '#z=' + encodeURIComponent(zcode) : ''}`);
 function setCode(code, made = false) {
   Sync.stop();
   if (!made && !Store.demoOn) {
@@ -882,6 +884,13 @@ function renderHome() {
   </div>
   <div class="home-col">
     ${Role.admin ? `<section class="card">
+      <div class="card-h"><h2>Les secteurs</h2><span class="muted">${pl(zs.length, 'secteur')}</span></div>
+      <div class="grid2">
+        <button class="btn block" data-act="zone-build">${ico('plus')} Créer un secteur</button>
+        <button class="btn ghost block" data-act="page" data-v="assign">${ico('user')} Attribuer les secteurs</button>
+      </div>
+    </section>
+    <section class="card">
       <div class="card-h"><h2>Répartition</h2><button class="link" data-act="go" data-v="team">Gérer</button></div>
       ${coverageBlock()}
       ${zs.length ? zs.map((z) => zoneRow(z)).join('') : `<p class="muted" style="margin:0 0 12px">Créez les secteurs et confiez chacun à une équipe de 2 ou 3 personnes.</p><button class="btn block" data-act="go" data-v="team">${ico('sparkle')} Répartir les rues</button>`}
@@ -1265,12 +1274,12 @@ function renderAdmin() {
       <div class="card-h"><h2>Couverture</h2><span class="muted">${zs.length} secteur${zs.length > 1 ? 's' : ''}</span></div>
       ${zs.length ? coverageBlock() : '<p class="muted" style="margin:0 0 12px">Un secteur, c’est un paquet de rues confié à une équipe de 2 ou 3 personnes.</p>'}
       <div class="grid2">
-        <button class="btn" data-act="page" data-v="prep">${ico('pen')} Préparer les secteurs</button>
-        <button class="btn ghost" data-act="page" data-v="codes">${ico('grid')} Codes à distribuer</button>
+        <button class="btn" data-act="zone-build">${ico('plus')} Créer un secteur</button>
+        <button class="btn ghost" data-act="page" data-v="assign">${ico('user')} Attribuer les secteurs</button>
       </div>
       <div class="grid2" style="margin-top:8px">
-        <button class="btn ghost" data-act="zone-new">${ico('plus')} Nouveau secteur</button>
-        <button class="btn ghost" data-act="draw-start">${ico('pen')} Sur la carte</button>
+        <button class="btn ghost" data-act="page" data-v="codes">${ico('grid')} Imprimer les billets</button>
+        <button class="btn ghost" data-act="page" data-v="prep">${ico('pen')} Ajuster rue par rue</button>
       </div>
       <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!UI.auto}">${ico('sparkle')} Répartition automatique</button>
       ${UI.auto ? `<div class="quick" style="margin-top:14px">
@@ -1538,8 +1547,8 @@ PAGES.settings = (args) => {
       ${(window.CAL_CONFIG || {}).adminHash ? '<p class="muted" style="margin:12px 0 0;font-size:13.5px">Code d’accès responsable : le même pour tous les responsables, à ne donner qu’à eux. Pour le changer, voir README.md.</p>' : `<div class="field" style="margin-top:12px"><label for="set-code">Code responsable</label><input id="set-code" class="input" inputmode="numeric" data-set="code" value="${esc(set.code || '')}" placeholder="4 chiffres"><small class="muted">À donner seulement aux personnes qui répartissent les rues.</small></div>`}
     </section>` : ''}
     ${admin ? `<section class="card" id="sec-prep"><div class="card-h"><h2>Secteurs</h2><span class="muted">${zones().length}</span></div>
-      <div class="grid2"><button class="btn" data-act="page" data-v="prep">${ico('pen')} Préparer les secteurs</button><button class="btn ghost" data-act="page" data-v="codes">${ico('grid')} Codes et QR</button></div>
-      <p class="muted" style="margin:10px 0 0;font-size:13px">Sur ordinateur : cochez les rues de chaque secteur, puis imprimez un billet par équipe.</p>
+      <div class="grid2"><button class="btn" data-act="zone-build">${ico('plus')} Créer un secteur</button><button class="btn ghost" data-act="page" data-v="assign">${ico('user')} Attribuer les secteurs</button></div>
+      <div class="grid2" style="margin-top:8px"><button class="btn ghost" data-act="page" data-v="codes">${ico('grid')} Imprimer les billets</button><button class="btn ghost" data-act="page" data-v="prep">${ico('pen')} Ajuster rue par rue</button></div>
     </section>`
     : `<section class="card" id="sec-prep"><div class="card-h"><h2>Mon secteur</h2><span class="muted">${Sector.zone ? esc(Sector.zone.name) : 'aucun'}</span></div>
       ${Sector.zone ? `<p class="muted" style="margin:0 0 12px">Code <b>${esc(Sector.code)}</b> · ${zonesStreets([Sector.zone]).length} rue${zonesStreets([Sector.zone]).length > 1 ? 's' : ''} · ${nf((stats().byZone[Sector.zone.id] || {}).total || 0)} foyers. Vous ne voyez que ces rues.</p>`
@@ -1741,6 +1750,88 @@ PAGES.zone = () => {
     foot: `<button class="btn ghost" data-act="page-close">Annuler</button><button class="btn block" data-act="ze-save" ${sel.size ? '' : 'disabled'}>${sel.size ? `Enregistrer · ${sel.size} adresses` : 'Choisissez des rues'}</button>`,
   };
 };
+// ───────── Créer un secteur : son nom, puis ses rues touchées une à une sur la carte
+let SB = null;
+function startBuilder(z) {
+  if (!Role.admin) return;
+  SB = { id: z ? z.id : null, name: z ? z.name : '', color: z ? z.color : ZONE_COLORS[zones().length % ZONE_COLORS.length], addrs: new Set(z ? z.addrs || [] : []), sel: null, log: [] };
+  Page.open('newzone', {});
+}
+/** Le nom est validé : on passe à la carte. */
+function builderToMap() {
+  if (!SB) return;
+  SB.name = String(SB.name || '').trim() || `Secteur ${zones().length + 1}`;
+  ZE = { ...newZE(), id: SB.id, name: SB.name, color: SB.color, addrs: SB.addrs, build: true };
+  Page.close();
+  MapView.startLasso();
+}
+PAGES.newzone = () => {
+  if (!SB) return { title: 'Nouveau secteur', body: '' };
+  const n = SB.addrs.size;
+  return {
+    title: SB.id ? 'Modifier le secteur' : 'Nouveau secteur',
+    body: `<div class="stackv">
+      <section class="card">
+        <div class="field"><label for="sb-name">Nom du secteur</label><input id="sb-name" class="input" value="${esc(SB.name)}" placeholder="Seppois nord" autocomplete="off" autocapitalize="words"></div>
+        <p class="muted" style="margin:10px 0 0;font-size:13.5px">Par exemple « Seppois nord », « Seppois sud », « Mooslargue ». Vous choisirez ses rues juste après, sur la carte.</p>
+      </section>
+      <section class="card">
+        <div class="card-h"><h2>Couleur sur la carte</h2></div>
+        <div class="swatches">${ZONE_COLORS.map((c) => `<button style="--c:${c}" data-act="sb-color" data-v="${c}" aria-pressed="${SB.color === c}" aria-label="Couleur ${c}"></button>`).join('')}</div>
+      </section>
+      ${n ? `<div class="note-box">Ce secteur contient déjà ${pl(n, 'adresse')}.</div>` : ''}
+    </div>`,
+    foot: `<button class="btn ghost" data-act="page-close">Annuler</button><button class="btn block" data-act="sb-to-map">${ico('map')} Choisir les rues sur la carte</button>`,
+  };
+};
+/** Attribuer les secteurs : les personnes, puis le code et le billet. */
+PAGES.assign = (args) => {
+  const zs = zones(), S = stats();
+  const z = args.z ? Store.s.zones[args.z] : null;
+  if (z && !z.del) {
+    const g = S.byZone[z.id] || { total: 0 }, sts = zonesStreets([z]);
+    const byCom = new Map();
+    for (const st of sts) { if (!byCom.has(st.com)) byCom.set(st.com, []); byCom.get(st.com).push(st.name); }
+    return {
+      title: z.name,
+      body: `<div class="stackv">
+        <section class="card" style="--c:${z.color}">
+          <div class="card-h"><h2><span class="zdot" style="--c:${z.color}"></span> ${esc(z.name)}</h2><span class="muted">${pl(sts.length, 'rue')} · ${nf(g.total)} foyers</span></div>
+          ${[...byCom].map(([com, l]) => `<p class="cc-st"><b>${esc(com)}</b> : ${esc(l.join(', '))}</p>`).join('') || '<p class="muted" style="margin:0">Aucune rue pour l’instant.</p>'}
+          <button class="btn ghost block" style="margin-top:12px" data-act="zone-build" data-v="${z.id}">${ico('map')} Modifier les rues</button>
+        </section>
+        <section class="card">
+          <div class="card-h"><h2>Qui fait ce secteur</h2></div>
+          <p class="muted" style="margin:0 0 12px">Les noms et prénoms des pompiers de ce secteur, un par ligne.</p>
+          <form data-form="assign-people" data-z="${z.id}" style="display:grid;gap:10px">
+            <textarea class="input" name="names" rows="3" placeholder="Thomas Keller&#10;Julie Wagner" autocomplete="off">${esc((z.members || []).map((m) => member(m)?.name).filter(Boolean).join('\n'))}</textarea>
+            <button class="btn" type="submit">${ico('check')} Enregistrer et générer le code</button>
+          </form>
+        </section>
+        <section class="card">
+          <div class="card-h"><h2>Le code de ce secteur</h2></div>
+          <div class="cc-mid">
+            <div class="cc-code"><small class="lbl">À donner à l’équipe</small><div class="code-box">${z.code ? esc(z.code) : '— — — —'}</div></div>
+            ${z.code ? `<div class="qr">${qrSvg(joinLink(z.code))}</div>` : ''}
+          </div>
+          <p class="muted" style="margin:10px 0 0;font-size:13.5px">${z.code ? 'L’équipe scanne le QR code — ou ouvre l’app et saisit ce code — et ne voit que ces rues.' : 'Enregistrez les noms ci-dessus : le code sera créé.'}</p>
+          <button class="btn ghost block" style="margin-top:12px" data-act="page" data-v="codes">${ico('grid')} Imprimer les billets</button>
+        </section>
+      </div>`,
+    };
+  }
+  return {
+    title: 'Attribuer les secteurs',
+    body: `<div class="stackv">
+      ${zs.length ? '<div class="note-box">Touchez un secteur pour y mettre les noms des pompiers : l’app lui donne alors son code à 4 chiffres.</div>' : ''}
+      ${zs.length ? zs.map((x) => { const g = S.byZone[x.id] || { total: 0 }; return `<button class="zone-row as-btn" data-act="page" data-v="assign" data-z="${x.id}"><span class="zdot" style="--c:${x.color}"></span><b>${esc(x.name)}</b><span class="meta">${x.code ? esc(x.code) : 'sans code'}</span><span class="zone-team" style="grid-column:2/-1">${(x.members || []).length ? esc(names(x.members)) : '<i class="todo">Personne pour l’instant</i>'} · ${pl(zonesStreets([x]).length, 'rue')} · ${nf(g.total)} foyers</span></button>`; }).join('')
+        : '<div class="card empty"><b>Aucun secteur</b><span>Créez d’abord un secteur, puis revenez ici pour lui attribuer une équipe.</span></div>'}
+      <button class="btn block" data-act="zone-build">${ico('plus')} Créer un secteur</button>
+      ${zs.length ? `<button class="btn ghost block" data-act="page" data-v="codes">${ico('grid')} Imprimer les billets</button>` : ''}
+    </div>`,
+  };
+};
+
 // ───────── Préparer les secteurs : un secteur, ses rues, son code d'équipe (confortable sur ordinateur)
 let PZ = { zid: '', com: '', q: '', open: new Set(), del: false };
 const pzZone = () => { const z = Store.s.zones[PZ.zid]; return z && !z.del ? z : null; };
@@ -1821,12 +1912,10 @@ PAGES.codes = () => {
       <div class="cc-top"><span class="zdot" style="--c:${z.color}"></span><b>${esc(z.name)}</b><span class="muted">${nf(g.total)} foyer${g.total > 1 ? 's' : ''} · ${nStreets} rue${nStreets > 1 ? 's' : ''}</span></div>
       <div class="cc-mid">
         <div class="cc-code"><small class="lbl">Code du secteur</small><div class="code-box">${z.code ? esc(z.code) : '— — — —'}</div><small class="muted">${(z.members || []).length ? esc(names(z.members)) : 'équipe à désigner'}</small></div>
-        ${z.code && (Sync.code || Store.demoOn) ? `<div class="qr">${qrSvg(Store.demoOn ? location.origin + location.pathname : joinLink(z.code))}</div>` : ''}
+        ${z.code ? `<div class="qr">${qrSvg(joinLink(z.code))}</div>` : ''}
       </div>
       <p class="cc-how">${!z.code ? 'Ce secteur n’a pas encore de code : touchez « Donner un code » en haut de cette page, puis réimprimez.'
-        : Store.demoOn ? `Démo : scannez le QR code pour ouvrir l’app, puis saisissez <b>${esc(z.code)}</b>.`
-        : !Sync.code ? 'Reliez d’abord l’équipe à la feuille (Réglages › Équipe connectée), puis revenez imprimer ce billet.'
-        : `Scannez le QR code avec l’appareil photo du téléphone : l’app s’ouvre déjà reliée à l’équipe et au secteur. Sinon, scannez le QR code de l’équipe et saisissez <b>${esc(z.code)}</b>.`}</p>
+        : `Scannez le QR code avec l’appareil photo du téléphone : l’app s’ouvre sur ce secteur. Sinon, ouvrez l’app et saisissez <b>${esc(z.code)}</b>.${Sync.code ? '' : ' (Les passages resteront sur chaque téléphone tant que l’équipe n’est pas reliée à la feuille Google.)'}`}</p>
       ${[...byCom].map(([com, l]) => `<p class="cc-st"><b>${esc(com)}</b> : ${esc(l.join(', '))}</p>`).join('') || '<p class="cc-st muted">Aucune rue dans ce secteur pour l’instant.</p>'}
     </section>`;
   };
@@ -2083,6 +2172,14 @@ const MapView = {
     return na && nd <= 46 ? na.sk : null;
   },
   click(p) {
+    // Création d'un secteur : un toucher choisit la rue, on l'ajoute ensuite avec le bouton
+    if (this.lasso && ZE?.build) {
+      const a0 = this.nearest(p), sk = a0 ? a0.sk : this.hitStreet(p);
+      if (!sk) return;
+      SB.sel = sk; this.selStreet = sk; vibrate(8);
+      this.renderLassoBar(); this.draw();
+      return;
+    }
     const byStreet = this.lasso && this.lasso.grain !== 'house';
     const a0 = this.nearest(p);
     const a = byStreet ? null : a0;
@@ -2208,6 +2305,17 @@ const MapView = {
     if (!this.lasso || !ZE) { bar.hidden = true; return; }
     const n = ZE.addrs.size, m = this.lasso.mode;
     bar.hidden = false;
+    if (ZE.build) {
+      const st = SB && SB.sel ? streetOf(SB.sel) : null;
+      const inZ = st ? st.addrs.filter((a) => ZE.addrs.has(a.id)).length : 0;
+      const nSt = streets().filter((x) => x.addrs.some((a) => ZE.addrs.has(a.id))).length;
+      bar.innerHTML = `<p><span class="zdot" style="--c:${ZE.color}"></span> <b>${esc(ZE.name)}</b> · ${pl(nSt, 'rue')} · ${pl(n, 'adresse')}<br><small>${st ? '' : 'Touchez une rue sur la carte, puis « Ajouter au secteur ».'}</small></p>
+        ${st ? `<div class="sb-pick"><b>${esc(st.name)}</b><small>${esc(st.com)} · ${pl(st.addrs.length, 'maison')}${inZ === st.addrs.length ? ' · déjà dans le secteur' : ''}</small></div>
+          <button class="btn red block" data-act="${inZ === st.addrs.length ? 'sb-remove' : 'sb-add'}">${inZ === st.addrs.length ? `${ico('minus')} Retirer du secteur` : `${ico('plus')} Ajouter au secteur`}</button>` : ''}
+        <div class="chips">${SB && SB.log.length ? `<button class="chip" data-act="sb-undo">${ico('chev-l', 'sm')} Annuler la dernière</button>` : ''}<button class="chip" data-act="sb-cancel">Annuler</button><button class="chip go" data-act="sb-save" ${n ? '' : 'disabled'}>${ico('check', 'sm')} Valider le secteur</button></div>`;
+      document.documentElement.style.setProperty('--lasso-h', bar.offsetHeight + 'px');
+      return;
+    }
     const g = this.lasso.grain !== 'house';
     const what = g ? 'une rue (entière)' : 'une maison';
     const hint = `<b>Clic droit</b> sur ${what} pour l’${m === 'add' ? 'ajouter' : 'enlever'}, clic droit maintenu pour entourer plusieurs maisons. <b>Clic gauche</b> : déplacer la carte. Au doigt : appuyez pour choisir, glissez pour déplacer.`;
@@ -2524,8 +2632,8 @@ function joinTeam(url, code) {
 // ═════════════════════════ Actions
 const A = {
   go: (el) => { if (Page.cur && Page.cur !== 'welcome') A['page-close'](); Sheet.close(); go(el.dataset.v); },
-  page: (el) => { Sheet.close(); Page.open(el.dataset.v, { sec: el.dataset.sec, step: el.dataset.step }); },
-  'page-close': () => { if (Page.cur === 'zone') ZE = null; Page.close(); },
+  page: (el) => { Sheet.close(); Page.open(el.dataset.v, { sec: el.dataset.sec, step: el.dataset.step, z: el.dataset.z }); },
+  'page-close': () => { if (Page.cur === 'zone') ZE = null; if (Page.cur === 'newzone') SB = null; Page.close(); },
   'sheet-close': () => Sheet.close(),
   reload: () => location.reload(),
   history: () => Page.open('history', {}),
@@ -2628,7 +2736,7 @@ const A = {
   'mem-del': (el) => { const m = member(el.dataset.id); if (!m) return; Store.put('member', m.id, { ...m, del: true }); for (const z of zones()) if ((z.members || []).includes(m.id)) Store.put('zone', z.id, { ...z, members: z.members.filter((x) => x !== m.id) }); Me.set(Me.team().filter((x) => x !== m.id)); Page.close(); toast(`${m.name} a été retiré de la liste.`); },
   // Secteurs
   'zone-new': () => { ZE = newZE(); Page.open('zone'); },
-  'zone-edit': (el) => { const z = Store.s.zones[el.dataset.v]; if (z) openZoneEditor(z); },
+  'zone-edit': (el) => { const z = Store.s.zones[el.dataset.v]; if (z) Page.open('assign', { z: z.id }); },
   'ze-color': (el) => { ZE.color = el.dataset.v; Page.render(false); },
   'ze-member': (el) => { const v = el.dataset.v; ZE.members = ZE.members.includes(v) ? ZE.members.filter((x) => x !== v) : [...ZE.members, v]; Page.render(false); },
   'ze-com': (el) => { ZE.com = el.dataset.v; Page.render(false); },
@@ -2648,6 +2756,44 @@ const A = {
     saveZone({ id, name, color: ZE.color, members: ZE.members, addrs: [...ZE.addrs], order: ZE.order });
     ZE = null; Page.close();
     toast(`${isNew ? 'Secteur créé' : 'Secteur enregistré'} : ${name}${moved ? ` · ${moved} adresse${moved > 1 ? 's' : ''} déplacée${moved > 1 ? 's' : ''} depuis un autre secteur` : ''}`);
+  },
+  // Créer un secteur : nom, puis rues touchées sur la carte
+  'zone-build': (el) => startBuilder(el?.dataset?.v ? Store.s.zones[el.dataset.v] : null),
+  'sb-color': (el) => { if (SB) { SB.color = el.dataset.v; Page.render(false); } },
+  'sb-to-map': () => { if (SB) { const i = $('#sb-name'); if (i) SB.name = i.value; builderToMap(); } },
+  'sb-add': () => {
+    const st = SB && SB.sel && streetOf(SB.sel); if (!st || !ZE) return;
+    const added = st.addrs.filter((a) => !ZE.addrs.has(a.id)).map((a) => a.id);
+    added.forEach((id) => ZE.addrs.add(id));
+    SB.log.push({ sk: st.sk, ids: added, add: true }); SB.sel = null; MapView.selStreet = null;
+    vibrate(12); toast(`${st.name} ajoutée · ${pl(added.length, 'maison')}`, { ms: 2200 });
+    MapView.renderLassoBar(); MapView.draw();
+  },
+  'sb-remove': () => {
+    const st = SB && SB.sel && streetOf(SB.sel); if (!st || !ZE) return;
+    const gone = st.addrs.filter((a) => ZE.addrs.has(a.id)).map((a) => a.id);
+    gone.forEach((id) => ZE.addrs.delete(id));
+    SB.log.push({ sk: st.sk, ids: gone, add: false }); SB.sel = null; MapView.selStreet = null;
+    toast(`${st.name} retirée du secteur.`, { ms: 2200 });
+    MapView.renderLassoBar(); MapView.draw();
+  },
+  'sb-undo': () => {
+    const last = SB && SB.log.pop(); if (!last || !ZE) return;
+    last.ids.forEach((id) => (last.add ? ZE.addrs.delete(id) : ZE.addrs.add(id)));
+    SB.sel = null; MapView.selStreet = null;
+    toast(`${streetOf(last.sk)?.name || 'Rue'} : ${last.add ? 'retirée' : 'remise'}.`, { ms: 2000 });
+    MapView.renderLassoBar(); MapView.draw();
+  },
+  'sb-cancel': () => { SB = null; ZE = null; MapView.endLasso(false); go('home'); },
+  'sb-save': () => {
+    if (!SB || !ZE || !ZE.addrs.size) return;
+    const id = SB.id || uid('z'), isNew = !SB.id;
+    const cur = Store.s.zones[id] || {};
+    saveZone({ id, name: SB.name, color: SB.color, members: cur.members || [], addrs: [...ZE.addrs], order: cur.order ?? zones().length });
+    const z = Store.s.zones[id];
+    SB = null; ZE = null; MapView.endLasso(false);
+    toast(`${z.name} ${isNew ? 'créé' : 'enregistré'} · ${pl(zonesStreets([z]).length, 'rue')}.`, { ms: 4000 });
+    Page.open('assign', { z: id });
   },
   // Préparation des secteurs : chaque geste est enregistré tout de suite
   'pz-pick': (el) => { PZ.zid = el.dataset.v; PZ.del = false; PZ.open = new Set(); Page.render(true); },
@@ -2813,6 +2959,15 @@ const FORMS = {
       Page.refresh(); toast(Sync.code ? 'Feuille reliée.' : 'Feuille reliée. Créez maintenant le code de l’équipe.');
     } catch (e) { toast('La feuille ne répond pas. Vérifiez le déploiement : accès « Tout le monde », puis réessayez.'); }
   },
+  'assign-people': (f) => {
+    const z = Store.s.zones[f.dataset.z]; if (!z || !Role.admin) return;
+    const list = f.elements.names.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+    const ids = list.map((n) => members().find((m) => norm(m.name) === norm(n))?.id || addMember(n));
+    Store.put('zone', z.id, { ...Store.s.zones[z.id], members: ids, code: z.code || newZoneCode() });
+    const z2 = Store.s.zones[z.id];
+    if (Page.cur) Page.refresh();
+    toast(ids.length ? `${z2.name} · ${names(ids)} · code ${z2.code}` : `${z2.name} · code ${z2.code}`, { ms: 6000 });
+  },
   'add-addr': (f) => { addAddress(f.elements.com.value, f.elements.street.value, f.elements.num.value); f.reset(); },
   'reset-all': (f) => {
     if (norm(f.elements.mot.value) !== 'effacer') { toast('Tapez EFFACER pour confirmer.'); return; }
@@ -2835,6 +2990,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'street-q') { UI.q = t.value; $('#addr-hits').innerHTML = addrHits(); $('#street-list').innerHTML = streetRows(); return; }
   if (t.id === 'ze-q' && ZE) { ZE.q = t.value; const pos = t.selectionStart; Page.render(false); const n = $('#ze-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } return; }
   if (t.id === 'ze-name' && ZE) { ZE.name = t.value; return; }
+  if (t.id === 'sb-name' && SB) { SB.name = t.value; return; }
   if (t.id === 'pz-q') { PZ.q = t.value; $('#pz-list').innerHTML = prepRows(); return; }
   if (t.dataset.bind && AS) {
     const path = t.dataset.bind.split('.');
@@ -2914,7 +3070,10 @@ function boot() {
     joinTeam(h.get('s') || '', join);
     if (zcode.length === 4) Sector.set(zcode);
     history.replaceState(null, '', location.pathname + location.search);
-  } else Sync.start();
+  } else {
+    if (zcode.length === 4) { Sector.set(zcode); history.replaceState(null, '', location.pathname + location.search); }
+    Sync.start();
+  }
   go(UI.view || 'home');
   maybeWelcome();
   if (!Role.chosen && !Page.cur) Role.set('distrib');
