@@ -964,3 +964,6 @@ body.scrolled .top { box-shadow: 0 6px 22px rgb(0 0 0 / .3); }
 .sb-pick { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
 .sb-pick b { font: 800 17px/1.1 var(--f-display); text-transform: uppercase; letter-spacing: .02em; }
 .sb-pick small { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.tour-nums { margin-top: 2px; }
+.tour-nums .doors { margin-top: 10px; }
+.tour-nums .dt[aria-current="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }

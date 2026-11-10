@@ -35,9 +35,17 @@ Tout se prépare à l'avance, sur un ordinateur ou sur le téléphone. Accès re
 
 ### 3. Le jour de la tournée
 
-Le distributeur ouvre le lien, touche **J'ai un code · je distribue** et saisit le code du billet — ou scanne simplement son QR code. Il voit alors la carte de **ses** rues et fait ses portes, n° 1, n° 2… Il ne voit ni la répartition, ni les autres secteurs.
+Le distributeur scanne le QR code de son billet (ou ouvre le lien, touche **J'ai un code · je distribue** et saisit le code). L'app lui demande **son prénom**, puis affiche la carte de **ses** rues, et seulement celles-là. Il choisit sa rue, commence au numéro qu'il veut (« Commencer à un autre numéro »), et note chaque porte : **Calendrier donné, Absent, À repasser, Refus**. Il ne voit ni la répartition, ni les autres secteurs.
+
+Côté responsable, la carte **« Sur le terrain »** (accueil et onglet Répartition) montre qui s'est déclaré sur quel secteur, l'avancement et la dernière activité : « Arnaud · Seppois-le-Bas sud · 2/107 foyers · à l'instant ».
 
 Le code du secteur sert à savoir **quelles rues afficher** ; ce n'est pas un mot de passe. Ce qui protège les données, c'est le code d'équipe, donné aux seuls pompiers.
+
+### Un seul responsable, trois appareils
+
+L'accès responsable est au nom de **Laetitia**. Il tient sur **trois appareils** au plus (ordinateur, téléphone, tablette) : si un quatrième saisit le code, il prend la place du plus anciennement utilisé. **Réglages › Appareils** montre la liste et permet d'en retirer un. Un appareil retiré perd l'accès à sa synchronisation suivante et doit saisir le code de nouveau. C'est un garde-fou d'organisation, pas un verrou : il repose sur chaque appareil.
+
+Pour **déconnecter tous les appareils** (responsables et distributeurs), changez la date `authEpoch` dans `config.js` et publiez : au lancement suivant, chacun redemande son code ou son QR code. Les passages déjà notés restent, et la liste des appareils du responsable repart de zéro.
 
 ## Ce que fait l'app
 

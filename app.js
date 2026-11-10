@@ -44,7 +44,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* stockage plein ou bloqué */ } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* idem */ } },
 };
-const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', zone: 'cal.zone', theme: 'cal.theme', welcomed: 'cal.welcomed', made: 'cal.made', fixLater: 'cal.fixlater', adminKey: 'cal.adminkey' };
+const K = { state: 'cal.state.v1', queue: 'cal.queue.v2', since: 'cal.since.v2', code: 'cal.code', me: 'cal.me', cfg: 'cal.cfg.v2', sheet: 'cal.sheet', mode: 'cal.mode', role: 'cal.role', ver: 'cal.ver', ui: 'cal.ui.v2', zone: 'cal.zone', dev: 'cal.dev', epoch: 'cal.epoch', theme: 'cal.theme', welcomed: 'cal.welcomed', made: 'cal.made', fixLater: 'cal.fixlater', adminKey: 'cal.adminkey' };
 
 // ═════════════════════════ Données du secteur (5 communes)
 const O_LAT = 47.5, O_LON = 7.1;
@@ -94,10 +94,14 @@ const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const known = (o, k, d) => (typeof k === 'string' && has(o, k) ? k : d);
 function clean(kind, id, d) {
   if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
-  if (kind === 'settings') return { ...d, name: txt(d.name), year: nb(d.year), code: d.code ? txt(d.code) : '', reset: nb(d.reset), u: nb(d.u) };
+  if (kind === 'settings') {
+    const admins = {};
+    if (d.admins && typeof d.admins === 'object' && !Array.isArray(d.admins)) for (const [k, v] of Object.entries(d.admins).slice(0, 24)) if (isId(k)) admins[k] = nb(v);
+    return { ...d, name: txt(d.name), year: nb(d.year), code: d.code ? txt(d.code) : '', reset: nb(d.reset), admins, adminEpoch: txt(d.adminEpoch).slice(0, 40), u: nb(d.u) };
+  }
   if (!has(KIND_COL, kind) || !isId(id)) return null;
   const o = { ...d, u: nb(d.u), del: !!d.del };
-  if (kind === 'member') return Object.assign(o, { id, name: txt(d.name).trim() || '?', color: hex(d.color, PALETTE[0]), zc: /^\d{4}$/.test(String(d.zc || '')) ? String(d.zc) : '' });
+  if (kind === 'member') return Object.assign(o, { id, name: txt(d.name).trim() || '?', color: hex(d.color, PALETTE[0]), zc: /^\d{4}$/.test(String(d.zc || '')) ? String(d.zc) : '', zat: nb(d.zat) });
   if (kind === 'zone') return Object.assign(o, { id, name: txt(d.name), code: /^\d{4}$/.test(String(d.code || '')) ? String(d.code) : '', color: hex(d.color, ZONE_COLORS[0]), members: idList(d.members), addrs: idList(d.addrs), order: nb(d.order), auto: !!d.auto });
   if (kind === 'bld') return Object.assign(o, { id, n: clamp(nb(d.n) | 0, 1, 99), labels: (Array.isArray(d.labels) ? d.labels.slice(0, 99) : []).map(txt) });
   if (kind === 'addr') {
@@ -216,6 +220,7 @@ const Sync = {
         if (!this.pending || !batch.length) break;
       }
       this.lastOk = Date.now(); this.set('online');
+      adminCheckIn();
     } catch (e) {
       if (gen !== this.gen) return;
       const msg = e?.name === 'AbortError' ? 'Le serveur met trop de temps à répondre' : e?.message || String(e);
@@ -270,12 +275,18 @@ const Me = {
     return Store.demoOn ? ['demo-m0', 'demo-m1'] : [];
   },
   team() { return this.raw().filter((id, i, a) => member(id) && a.indexOf(id) === i).slice(0, MAX_TEAM); },
-  set(ids) { LS.set(this.key(), [...new Set(ids)].slice(0, MAX_TEAM)); this.claim(); Store.rev++; App.changed(); },
+  set(ids) { const before = this.team(); LS.set(this.key(), [...new Set(ids)].slice(0, MAX_TEAM)); this.release(before.filter((id) => !ids.includes(id))); this.claim(); Store.rev++; App.changed(); },
+  /** Ceux qui quittent ce téléphone ne sont plus annoncés sur son secteur. */
+  release(ids) {
+    const c = Sector.code;
+    if (!c || Store.demoOn) return;
+    for (const id of ids) { const m = member(id); if (m && m.zc === c) Store.put('member', id, { ...m, zc: '', zat: 0 }); }
+  },
   /** Rattache les pompiers de ce téléphone au secteur dont le code a été saisi : le responsable les voit arriver. */
   claim() {
     const c = Sector.code;
     if (!c || Store.demoOn) return;
-    for (const id of this.team()) { const m = member(id); if (m && m.zc !== c) Store.put('member', id, { ...m, zc: c }); }
+    for (const id of this.team()) { const m = member(id); if (m && m.zc !== c) Store.put('member', id, { ...m, zc: c, zat: Date.now() }); }
   },
   toggle(id) {
     const t = this.team();
@@ -296,6 +307,47 @@ const Role = {
   get admin() { return this.get() === 'admin'; },
   get chosen() { return !!this.get(); },
 };
+const ADMIN_NAME = 'Laetitia', MAX_ADMIN_DEV = 3, ADMIN_ACTIVE_MS = 21 * 86400000;
+/** Identifiant de cet appareil : il ne sert qu'à compter les appareils du responsable. */
+function deviceId() { let id = LS.get(K.dev, ''); if (!id) { id = uid('d'); LS.set(K.dev, id); } return id; }
+/** Appareils reliés à l'accès responsable : { id, at } ; at = 0 quand il a été retiré.
+    La liste ne vaut que pour la date d'accès en cours : « déconnecter tout le monde » la remet à zéro. */
+const authEpoch = () => String((window.CAL_CONFIG || {}).authEpoch || '');
+const adminMap = () => (Store.s.settings.adminEpoch === authEpoch() ? { ...(Store.s.settings.admins || {}) } : {});
+const adminDevs = () => Object.entries(adminMap()).map(([id, at]) => ({ id, at: +at || 0 }));
+const adminLive = () => adminDevs().filter((d) => d.at > 0 && Date.now() - d.at < ADMIN_ACTIVE_MS);
+function putAdmins(admins) {
+  for (const [k, v] of Object.entries(admins)) if (v > 0 && Date.now() - v >= ADMIN_ACTIVE_MS) delete admins[k]; // les appareils disparus libèrent leur place
+  return Store.put('settings', 'main', { ...Store.s.settings, admins, adminEpoch: authEpoch() });
+}
+/** Les réglages de l'équipe sont-ils arrivés ? Sinon on écrirait par-dessus sans les avoir lus. */
+const teamPending = () => Sync.configured && Sync.code && !Sync.since && LS.get(K.made, '') !== Sync.code && !Store.demoOn;
+function adminDemote(msg) {
+  LS.del(K.adminKey); Role.set('distrib');
+  if (Page.cur) Page.close(); Sheet.close(); go('map');
+  toast(msg, { ms: 10000 });
+}
+/** Après chaque synchro réussie (donc avec les réglages de l'équipe à jour) : cet appareil prend sa place, ou la rend. */
+function adminCheckIn() {
+  if (!Role.admin || Store.demoOn) return;
+  const id = deviceId(), all = adminMap(), mine = all[id];
+  if (mine === 0) { // retiré par un autre appareil
+    delete all[id]; putAdmins(all);
+    adminDemote('Cet appareil a été retiré de l’accès responsable. Saisissez le code pour le reprendre.');
+    return;
+  }
+  const fresh = mine > 0 && Date.now() - mine < ADMIN_ACTIVE_MS;
+  if (fresh && Date.now() - mine < 7 * 86400000) return; // déjà inscrit : on ne réécrit les réglages partagés qu'une fois par semaine
+  if (!fresh && adminLive().filter((d) => d.id !== id).length >= MAX_ADMIN_DEV) {
+    adminDemote(`Déjà ${MAX_ADMIN_DEV} appareils sur l’accès responsable de ${ADMIN_NAME}. Retirez-en un dans Réglages › Appareils.`);
+    return;
+  }
+  all[id] = Date.now(); putAdmins(all);
+}
+function adminCheckOut() {
+  const id = LS.get(K.dev, ''), all = adminMap();
+  if (id && id in all && !Store.demoOn) { delete all[id]; putAdmins(all); }
+}
 const adminCode = () => String(Store.s.settings.code || '');
 /** Entre dans l'accès responsable. Sans code enregistré, le premier à en créer un devient responsable. */
 /** Code d'accès responsable unique, vérifié contre l'empreinte de config.js (null : pas de code central). */
@@ -319,7 +371,18 @@ async function tryAdmin(code) {
   if (!normCode(code)) { toast('Entrez le code d’accès responsable.'); return false; }
   let central;
   try { central = await checkAdminCode(code); } catch (e) { central = false; }
-  if (central === true) { LS.set(K.adminKey, String(window.CAL_CONFIG.adminHash)); Role.set('admin'); return true; }
+  if (central === true) {
+    const id = deviceId();
+    if (teamPending()) { toast('Réception des réglages de l’équipe… Réessayez dans un instant.'); Sync.cycle(); return false; }
+    const others = adminLive().filter((d) => d.id !== id).sort((a, b) => a.at - b.at);
+    const all = adminMap();
+    // Déjà trois appareils : le plus anciennement vu cède sa place (il devra ressaisir le code). La limite reste trois, sans impasse.
+    if (others.length >= MAX_ADMIN_DEV) { all[others[0].id] = 0; toast(`Trois appareils au plus pour ${ADMIN_NAME} : le plus ancien a été retiré pour faire place à celui-ci.`, { ms: 9000 }); }
+    all[id] = Date.now(); // efface aussi un éventuel retrait de cet appareil
+    LS.set(K.adminKey, String(window.CAL_CONFIG.adminHash)); Role.set('admin');
+    putAdmins(all);
+    return true;
+  }
   if (central === false) { toast('Code d’accès incorrect.'); vibrate([30, 60, 30]); return false; }
   return legacyAdmin(code);
 }
@@ -483,8 +546,8 @@ function newZoneCode() {
 const Sector = {
   get code() { return String(LS.get(K.zone, '') || ''); },
   get zone() { const c = this.code; return c && !Store.demoOn ? zones().find((z) => z.code === c) || null : null; },
-  set(code) { LS.set(K.zone, String(code || '')); Store.rev++; App.changed(); },
-  clear() { LS.del(K.zone); Store.rev++; App.changed(); },
+  set(code) { LS.set(K.zone, String(code || '')); Me.claim(); Store.rev++; App.changed(); },
+  clear() { Me.release(Me.team()); LS.del(K.zone); Store.rev++; App.changed(); },
 };
 /** Les pompiers d'un secteur : ceux saisis par le responsable, plus ceux qui se sont déclarés avec son code.
     Sert à l'affichage seulement : la répartition des rues reste celle du responsable. */
@@ -865,6 +928,7 @@ function makeDemo() {
     const id = 'demo-z' + zi;
     const team = zi % 2 ? [ids[zi * 2], ids[zi * 2 + 1], ids[(zi * 2 + 7) % ids.length]] : [ids[zi * 2], ids[zi * 2 + 1]];
     const list = BASE_ADDRS.filter((a) => a.com === com).sort((a, b) => sortKey(a.street).localeCompare(sortKey(b.street)) || numCmp(a, b));
+    for (const mid of team) Object.assign(s.members[mid], { zc: String(1926 + zi * 1111), zat: now - (zi * 7 + 3) * 60000 });
     s.zones[id] = { id, name: com, code: String(1926 + zi * 1111), color: ZONE_COLORS[zi], addrs: list.map((a) => a.id), members: team, order: zi, u: 1 + zi }; // codes de démo : 1926, 3037, 4148…
     const us = list.flatMap((a) => { const n = s.bld[a.id]?.n || 1; return Array.from({ length: n }, (_, k) => ({ id: k ? `${a.id}~${k + 1}` : a.id, a })); });
     const nV = Math.round(us.length * prog[zi]);
@@ -1050,7 +1114,7 @@ function renderHome() {
     </section>
   </div>
   <div class="home-col">
-    ${Role.admin ? `<section class="card">
+    ${Role.admin ? `${fieldCard()}<section class="card">
       <div class="card-h"><h2>Les secteurs</h2><span class="muted">${pl(zs.length, 'secteur')}</span></div>
       <div class="grid2">
         <button class="btn block" data-act="zone-build">${ico('plus')} Créer un secteur</button>
@@ -1094,6 +1158,29 @@ function coverageBlock() {
   return `<div class="coverage ${miss ? 'warn' : 'ok'}"><div class="cov-bar"><i style="width:${pct(tot - miss, tot)}%"></i></div>
     <p>${miss ? `<b>${miss} adresse${miss > 1 ? 's' : ''} sans équipe</b> sur ${nf(tot)}.` : `<b>Toutes les rues sont attribuées.</b> ${nf(tot)} adresses.`}</p>
     ${miss ? '<button class="btn sm" data-act="page" data-v="unassigned">Les répartir</button>' : ''}</div>`;
+}
+/** Les pompiers qui se sont déclarés sur un secteur depuis leur téléphone, les plus récents d'abord. */
+const onField = () => memo('onField', () => {
+  const S = stats(), out = [];
+  for (const m of members()) {
+    if (!m.zc) continue;
+    const z = zones().find((x) => x.code === m.zc); if (!z) continue;
+    const at = Math.max(+m.zat || 0, S.byMember[m.id]?.last || 0); // date de la déclaration ou de la dernière porte, pas d'une retouche de la fiche
+    if (!Store.demoOn && Date.now() - at > 24 * 3600000) continue;   // la carte montre les équipes du jour
+    out.push({ m, z, at, doors: S.byMember[m.id]?.doors || 0 });
+  }
+  return out.sort((a, b) => b.at - a.at);
+});
+const sinceLabel = (at) => { const d = Math.max(0, Date.now() - at); return d < 120000 ? 'à l’instant' : d < 3600000 ? `il y a ${Math.round(d / 60000)} min` : isoDay(new Date(at)) === isoDay() ? `à ${hhmm(at)}` : dayShort(at); };
+function fieldCard() {
+  if (!zones().length) return '';
+  const live = onField();
+  return `<section class="card">
+    <div class="card-h"><h2>Sur le terrain</h2><span class="muted">${live.length ? pl(live.length, 'pompier') : 'personne'}</span></div>
+    ${live.length ? live.map(({ m, z, at, doors }) => { const g = stats().byZone[z.id];
+      return `<button class="mini-row" data-act="page" data-v="assign" data-z="${z.id}"><span class="zdot" style="--c:${z.color}"></span><span class="grow"><b>${esc(m.name)}</b><small>${esc(z.name)}${g ? ` · ${g.visited}/${g.total} foyers` : ''}${doors ? ` · ${pl(doors, 'porte')} notée${doors > 1 ? 's' : ''}` : ''}</small></span><span class="when">${sinceLabel(at)}</span></button>`; }).join('')
+      : '<p class="muted" style="margin:0">Personne n’est encore en tournée. Dès qu’une équipe scanne son billet et donne son prénom, elle apparaît ici.</p>'}
+  </section>`;
 }
 /** Une équipe et son secteur, en une ligne. */
 function zoneRow(z) {
@@ -1293,14 +1380,15 @@ function renderTour() {
     el.innerHTML = `<div class="view-in"><div class="tour-top"><button class="chip" data-act="tour-pick">${ico('chev-l', 'sm')} Choisir une rue</button>${tourTeamLine()}</div><div class="empty"><b>Recherche de votre position…</b>Autorisez la localisation quand le téléphone le demande.</div></div>`;
     return;
   }
-  const full = tourList();
+  const full = tourList(), numsOpen = !!$('.tour-nums', el)?.open;
   let cur = full.find((u) => u.id === T.cur);
   if (!cur) { cur = (T.open ? full.find((u) => OPEN.has(statusOf(u.id))) : full[0]) || full[0] || null; T.cur = cur?.id || null; TD = freshTD(T.cur); }
   const S = stats(), st = T.near ? null : streetOf(T.street), r = st ? S.byStreet.get(st.sk) : null;
   const remaining = full.filter((u) => OPEN.has(statusOf(u.id)));
   const head = `<div class="tour-top"><button class="chip" data-act="tour-pick">${ico('chev-l', 'sm')} ${T.near ? 'Autour de moi' : 'Changer de rue'}</button>${tourTeamLine()}</div>
-    ${r ? `<div class="plaque street">${esc(st.name)}</div><div class="sr-top tour-stats"><span class="muted">${esc(st.com)} · <b>${r.visited}/${r.total}</b> foyers · ${remaining.length} à faire ou revoir</span><span class="amt">${r.st.done}&nbsp;donnés</span></div>${stackBar(r.st, r.total)}` : ''}`;
-  if (!cur || (T.open && !remaining.length && !OPEN.has(statusOf(cur.id)) && TD.mode == null && !T.near)) {
+    ${r ? `<div class="plaque street">${esc(st.name)}</div><div class="sr-top tour-stats"><span class="muted">${esc(st.com)} · <b>${r.visited}/${r.total}</b> foyers · ${remaining.length} à faire ou revoir</span><span class="amt">${r.st.done}&nbsp;donnés</span></div>${stackBar(r.st, r.total)}
+    <details class="more tour-nums"${numsOpen ? ' open' : ''}><summary>Commencer à un autre numéro</summary><div><div class="doors">${full.map((u) => `<button class="dt sm" data-st="${statusOf(u.id)}" data-act="tour-go" data-id="${u.id}" aria-current="${u.id === T.cur}" aria-label="${esc(unitTitle(u))}">${esc(shortNum(u))}</button>`).join('')}</div></div></details>` : ''}`;
+  if (!cur || (T.open && !remaining.length && !OPEN.has(statusOf(cur.id)) && TD.mode == null && !TD.pick && !T.near)) {
     const team = Me.team(), zi = zoneIndex();
     const mine = zones().filter((z) => (z.members || []).some((m) => team.includes(m)));
     const sugg = visStreets().filter((x) => x.sk !== T.street && (!st || x.com === st.com || mine.length) && x.addrs.some((a) => unitsOf(a.id).some((u) => OPEN.has(statusOf(u.id))) && (!mine.length || mine.some((z) => zi.get(a.id) === z.id)))).slice(0, 5);
@@ -1456,6 +1544,7 @@ function renderAdmin() {
         ${(() => { const t = sum(Object.values(autoK())); return `<button class="btn block" data-act="auto-go">${ico('sparkle')} ${zs.length ? `Remplacer par ${pl(t, 'secteur')}` : `Créer ${pl(t, 'secteur')}`}</button>`; })()}
       </div>` : ''}
     </section>
+    ${fieldCard()}
     ${zs.length ? `<section class="card">
       <div class="card-h"><h2>Secteurs et équipes</h2><button class="link" data-act="share-assign">Partager</button></div>
       <p class="muted" style="margin:0 0 10px;font-size:13px">Le nombre en gras est le code que l’équipe du secteur saisit sur son téléphone.</p>
@@ -1710,6 +1799,10 @@ PAGES.settings = (args) => {
     ${admin ? `<section class="card" id="sec-campaign"><div class="card-h"><h2>Campagne</h2></div>
       <div class="field"><label for="set-name">Nom affiché</label><input id="set-name" class="input" data-set="name" value="${esc(set.name || '')}"></div>
       ${(window.CAL_CONFIG || {}).adminHash ? '<p class="muted" style="margin:12px 0 0;font-size:13.5px">Code d’accès responsable : le même pour tous les responsables, à ne donner qu’à eux. Pour le changer, voir README.md.</p>' : `<div class="field" style="margin-top:12px"><label for="set-code">Code responsable</label><input id="set-code" class="input" inputmode="numeric" data-set="code" value="${esc(set.code || '')}" placeholder="4 chiffres"><small class="muted">À donner seulement aux personnes qui répartissent les rues.</small></div>`}
+    </section>` : ''}
+    ${admin ? `<section class="card" id="sec-devices"><div class="card-h"><h2>Appareils</h2><span class="muted">${adminLive().length} / ${MAX_ADMIN_DEV}</span></div>
+      <p class="muted" style="margin:0 0 12px;font-size:13.5px">L’accès responsable est au nom de <b>${esc(ADMIN_NAME)}</b> et tient sur ${MAX_ADMIN_DEV} appareils au plus. Si un quatrième saisit le code, il prend la place du plus anciennement utilisé, qui devra ressaisir le code. Vous pouvez aussi en retirer un ici.</p>
+      ${adminLive().sort((a, b) => b.at - a.at).map((d, i) => `<div class="set-row"><div class="t"><b>${esc(ADMIN_NAME)} · appareil ${i + 1}${d.id === deviceId() ? ' (celui-ci)' : ''}</b><small>Vu ${sinceLabel(d.at)}</small></div>${d.id === deviceId() ? '' : `<button class="btn sm ghost" data-act="dev-del" data-id="${esc(d.id)}">Retirer</button>`}</div>`).join('') || '<p class="muted" style="margin:0">Cet appareil sera inscrit à la prochaine synchronisation.</p>'}
     </section>` : ''}
     ${admin ? `<section class="card" id="sec-prep"><div class="card-h"><h2>Secteurs</h2><span class="muted">${zones().length}</span></div>
       <div class="grid2"><button class="btn" data-act="zone-build">${ico('plus')} Créer un secteur</button><button class="btn ghost" data-act="page" data-v="assign">${ico('user')} Attribuer les secteurs</button></div>
@@ -2169,6 +2262,18 @@ PAGES.welcome = (args) => {
       ${needTeam ? '<div class="note-box">Ce téléphone n’est pas encore relié à l’équipe. Le plus simple : <b>scannez le QR code du billet</b> avec l’appareil photo. Sinon, saisissez ici le code d’équipe <b>SEP-XXXX-XXXX</b> inscrit sur le billet, puis le code à 4 chiffres de votre secteur.</div>' : ''}
       ${z ? `<div class="note-box">Ce téléphone suit déjà <b>${esc(z.name)}</b> · ${pl(zonesStreets([z]).length, 'rue')}.</div><button class="btn ghost block" data-act="w-done">Continuer avec ${esc(z.name)}</button>` : ''}
       ${!zones().length && Sync.code ? `<div class="note-box">Les secteurs ne sont pas encore arrivés sur ce téléphone.${Sync.state === 'offline' ? ' <b>Pas de réseau pour l’instant</b> : réessayez dès que le téléphone capte.' : Sync.state === 'error' ? ` <b>${esc(Sync.err)}</b>` : Sync.state === 'syncing' ? ' Réception en cours…' : ''}<br><button class="btn ghost sm" style="margin-top:10px" data-act="sync-now">${ico('repeat')} Synchroniser</button></div>` : ''}
+    </div>` };
+  }
+  if (step === 'prenom') {
+    const z = Sector.zone;
+    return { bare: true, body: `<div class="welcome left">
+      <h1 class="w-title sm">Votre prénom</h1>
+      <p>${z ? `Secteur <b>${esc(z.name)}</b> · ${pl(zonesStreets([z]).length, 'rue')}. ` : ''}Indiquez votre prénom : le responsable voit aussitôt qui fait ce secteur, et chaque porte notée est à votre nom.</p>
+      <form data-form="prenom" style="display:grid;gap:12px">
+        <input class="input" name="prenom" placeholder="Arnaud" autocomplete="given-name" autocapitalize="words" aria-label="Votre prénom" required>
+        <button class="btn red block" type="submit">${ico('door')} Voir mes rues</button>
+      </form>
+      <p class="muted" style="font-size:13.5px">À deux ou trois sur ce téléphone ? Séparez les prénoms par une virgule.</p>
     </div>` };
   }
   if (step === 'who') return { bare: true, body: `<div class="welcome left">
@@ -2731,7 +2836,7 @@ function prunePassages() {
 /** Remet ce téléphone à neuf : rien n'est envoyé aux autres. */
 function wipePhone() {
   Sync.stop();
-  for (const k of Object.values(K)) if (k !== K.theme && k !== K.ver) LS.del(k);
+  for (const k of Object.values(K)) if (k !== K.theme && k !== K.ver && k !== K.dev && k !== K.epoch) LS.del(k);
   LS.del(K.me + '.demo');
   Store.live = EMPTY(); Store.demo = null; Store.mode = 'live'; Store.rev++;
   Sync.queue = {}; Sync.code = ''; Sync.since = 0; Sync.sheet = ''; Sync.set('local');
@@ -2819,7 +2924,7 @@ const A = {
   'me-sheet': () => openMeSheet(),
   'fix-later': () => { LS.set(K.fixLater, Date.now()); App.changed(); },
   'me-toggle': (el) => Me.toggle(el.dataset.v),
-  'leave-admin': () => { Role.set('distrib'); if (Page.cur) Page.refresh(); go('home'); toast('Déconnecté de l’accès responsable.'); },
+  'leave-admin': () => { adminCheckOut(); LS.del(K.adminKey); Role.set('distrib'); if (Page.cur) Page.refresh(); go('home'); toast('Déconnecté de l’accès responsable.'); },
   'logout-step': (el) => Page.set({ logout: el.dataset.v }),
   'leave-team': () => {
     Sync.stop();
@@ -2879,7 +2984,7 @@ const A = {
   'tour-start': (el) => { UI.tour = { ...UI.tour, street: el.dataset.v, near: false, cur: null }; TD = freshTD(null); saveUI(); if (Page.cur) Page.close(); Sheet.close(); go('tour'); },
   'tour-near': () => { UI.tour = { ...UI.tour, near: true, street: null, cur: null }; saveUI(); Geo.start(); App.changed(); },
   'tour-pick': () => { UI.tour = { ...UI.tour, street: null, near: false, cur: null }; saveUI(); App.changed(); $('#v-tour').scrollTop = 0; },
-  'tour-go': (el) => { UI.tour.cur = el.dataset.id; TD = freshTD(el.dataset.id); saveUI(); App.changed(); tourScrollTop(); },
+  'tour-go': (el) => { el.closest?.('details')?.removeAttribute('open'); UI.tour.cur = el.dataset.id; TD = { ...freshTD(el.dataset.id), pick: true }; saveUI(); App.changed(); tourScrollTop(); },
   'tour-next': () => { tourNext(1); App.changed(); tourScrollTop(); },
   'tour-prev': () => { tourNext(-1); App.changed(); tourScrollTop(); },
   'tour-detail': () => UI.tour.cur && openUnit(UI.tour.cur, { tour: true }),
@@ -3014,6 +3119,14 @@ const A = {
   'pz-del-yes': () => { const z = pzZone(); if (!z || !Role.admin) return; Store.put('zone', z.id, { ...z, del: true }); PZ = { ...PZ, zid: '', del: false, open: new Set() }; Page.render(true); toast(`Secteur ${z.name} supprimé.`); },
   'codes-gen': () => { if (!Role.admin) return; let n = 0; for (const z of zones()) if (!z.code) { Store.put('zone', z.id, { ...z, code: newZoneCode() }); n++; } toast(`${n} code${n > 1 ? 's' : ''} créé${n > 1 ? 's' : ''}.`); },
   print: () => window.print(),
+  'dev-del': (el) => {
+    if (!Role.admin) return;
+    const all = adminMap(), id = el.dataset.id;
+    if (!(id in all)) return;
+    all[id] = 0; putAdmins(all); // 0 = retiré : l'appareil le découvre à sa prochaine synchro
+    if (Page.cur) Page.refresh();
+    toast('Appareil retiré : il devra saisir le code de nouveau.', { ms: 5000 });
+  },
   'sector-clear': () => { Sector.clear(); toast('Secteur retiré de ce téléphone.'); },
   'auto-open': () => { UI.auto = !UI.auto; App.changed(); },
   'auto-show': () => { UI.auto = true; if (Page.cur) Page.close(); go('team'); setTimeout(() => $('#v-team [data-act="auto-go"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80); },
@@ -3059,7 +3172,10 @@ const A = {
   'w-demo': () => { LS.set(K.welcomed, true); Page.close(); A['demo-enter'](); },
   'w-zones-com': () => { A['auto-com'](); A['w-done'](); },
   'w-zones-auto': () => { A['auto-go'](); A['w-done'](); },
-  'w-done': () => { LS.set(K.welcomed, true); if (!Role.chosen) Role.set('distrib'); Page.close(); go(Role.admin || Store.demoOn ? 'home' : 'map'); },
+  'w-done': () => {
+    if (!Role.admin && !Store.demoOn && Sector.zone && !Me.team().length) { Page.set({ step: 'prenom' }); return; }
+    LS.set(K.welcomed, true); if (!Role.chosen) Role.set('distrib'); Page.close(); go(Role.admin || Store.demoOn ? 'home' : 'map');
+  },
 };
 const FORMS = {
   'add-member': (f) => {
@@ -3097,6 +3213,19 @@ const FORMS = {
     if (!joinTeam(f.elements.url.value, c)) return;
     if (Page.cur === 'welcome') Page.set({ step: 'who' }); else { Page.refresh(); toast('Équipe rejointe.'); }
   },
+  prenom: (f) => {
+    const list = String(f.elements.prenom.value || '').split(/[\n,;]+/).map((x) => x.trim().replace(/\s+/g, ' ')).filter(Boolean).map((x) => x.charAt(0).toLocaleUpperCase('fr') + x.slice(1)).slice(0, MAX_TEAM);
+    if (!list.length) { toast('Indiquez votre prénom.'); return; }
+    if (Sync.configured && Sync.code && !Sync.since && LS.get(K.made, '') !== Sync.code && !Store.demoOn) { toast('Réception de l’équipe… réessayez dans un instant.'); Sync.cycle(); return; }
+    const here = Sector.code;
+    const ids = list.map((n) => members().find((m) => norm(m.name) === norm(n) && (!m.zc || m.zc === here))?.id || addMember(n)); // un homonyme déjà sur un autre secteur garde sa fiche
+    Me.set(ids); // inscrit aussi ces prénoms sur le secteur (champ zc) : le responsable les voit
+    if (!Role.chosen) Role.set('distrib');
+    LS.set(K.welcomed, true);
+    const z = Sector.zone;
+    Page.close(); go('map');
+    toast(z ? `Bonjour ${names(ids)} · secteur ${z.name}` : `Bonjour ${names(ids)}`, { ms: 4500 });
+  },
   sector: (f) => {
     const up = String(f.elements.code.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     // Code d'équipe : on relie le téléphone, puis on redemande le code du secteur
@@ -3122,7 +3251,8 @@ const FORMS = {
     if (!Role.chosen) Role.set('distrib');
     f.reset();
     toast(`Secteur ${z.name} · ${pl(zonesStreets([z]).length, 'rue')} à faire.`, { ms: 5000 });
-    if (Page.cur === 'welcome') { Page.close(); go('map'); } else if (Page.cur) Page.refresh();
+    if (!Me.team().length) { if (Page.cur === 'welcome') Page.set({ step: 'prenom' }); else Page.open('welcome', { step: 'prenom' }); }
+    else if (Page.cur === 'welcome') { Page.close(); go('map'); } else if (Page.cur) Page.refresh();
   },
   'me-add': (f) => {
     const list = f.elements.mname.value.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
@@ -3233,7 +3363,7 @@ const DATA_VERSION = 3;
 function migrate() {
   const v = LS.get(K.ver, 0);
   if (v === DATA_VERSION) return false;
-  for (const k of Object.values(K)) if (k !== K.theme && k !== K.ver) LS.del(k);
+  for (const k of Object.values(K)) if (k !== K.theme && k !== K.ver && k !== K.dev && k !== K.epoch) LS.del(k);
   LS.del(K.me + '.demo');
   LS.set(K.ver, DATA_VERSION);
   Object.assign(Sync, { queue: {}, code: '', since: 0, sheet: '' });
@@ -3244,10 +3374,29 @@ function hideSplash() {
   const el = document.getElementById('splash'); if (!el) return;
   setTimeout(() => { el.classList.add('gone'); setTimeout(() => el.remove(), 460); }, Math.max(0, 260 - performance.now()));
 }
+/** Quand la date d'accès de config.js change, chaque appareil redemande son code. Les passages restent. */
+function checkEpoch() {
+  const want = String((window.CAL_CONFIG || {}).authEpoch || '');
+  if (!want || LS.get(K.epoch, '') === want) return false;
+  const first = LS.get(K.epoch, null) === null && !LS.get(K.role, '') && !LS.get(K.zone, ''); // appareil neuf : rien à déconnecter
+  LS.set(K.epoch, want);
+  if (first) return false;
+  for (const k of [K.role, K.adminKey, K.zone, K.me, K.welcomed]) LS.del(k);
+  return true;
+}
+/** Un onglet resté ouvert ne garde pas un ancien accès : si la date publiée a changé, on recharge. */
+function epochWatch() {
+  if (!navigator.onLine || location.protocol === 'file:') return;
+  fetch('config.js', { cache: 'no-store' }).then((r) => (r.ok ? r.text() : '')).then((t) => {
+    const m = /authEpoch:\s*'([^']*)'/.exec(t);
+    if (m && m[1] !== authEpoch()) location.reload();
+  }).catch(() => {});
+}
 function boot() {
   applyTheme();
   OldIcon.check();
   const wiped = migrate();
+  const reauth = checkEpoch();
   Store.init();
   prunePassages();
   const h = new URLSearchParams(location.hash.slice(1));
@@ -3264,18 +3413,23 @@ function boot() {
   maybeWelcome();
   if (!Role.chosen && !Page.cur) Role.set('distrib');
   if (join && Sync.configured) {
-    if (Sector.code) { toast('Équipe rejointe. Voici vos rues.'); Page.close(); go('map'); }
+    if (Sector.code && !Me.team().length) Page.open('welcome', { step: 'prenom' });
+    else if (Sector.code) { toast('Bon retour. Voici vos rues.'); Page.close(); go('map'); }
     else { toast('Équipe rejointe : saisissez le code de votre secteur.'); Page.open('welcome', { step: 'secteur' }); }
   }
   else if (wiped) toast('Nouvelle version : l’app est repartie à zéro sur ce téléphone.', { ms: 6000 });
+  else if (reauth) toast('Nouvel accès : scannez le QR code de votre billet, ou saisissez votre code.', { ms: 9000 });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname))) navigator.serviceWorker.register('sw.js').catch(() => {});
   window.addEventListener('online', () => Sync.cycle());
   window.addEventListener('offline', () => { if (Sync.timer) Sync.set('offline'); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { Sync.cycle(); if (UI.view === 'tour') Wake.on(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { Sync.cycle(); epochWatch(); if (UI.view === 'tour') Wake.on(); } });
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); App.installPrompt = e; });
   window.addEventListener('resize', () => { if (MapView.map && UI.view === 'map') { MapView.map.invalidateSize(); MapView.size(); MapView.draw(); } });
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { applyTheme(); MapView.restyle(); });
-  setInterval(() => { if (isoDay() !== App.day) { App.day = isoDay(); Store.rev++; App.changed(); } }, 60000);
+  setInterval(() => {
+    if (isoDay() !== App.day) { App.day = isoDay(); Store.rev++; App.changed(); }
+    else if (Role.admin && (UI.view === 'home' || UI.view === 'team') && !Page.cur && document.visibilityState === 'visible') { Store.rev++; App.changed(); }
+  }, 60000);
   document.addEventListener('scroll', (e) => {
     const t = e.target;
     if (t instanceof Element && t.classList.contains('view') && !t.hidden) setScrollShadow(t.scrollTop > 4);
