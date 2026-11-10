@@ -857,11 +857,104 @@ function growRegions(items, k) {
   P.forEach((p, i) => out[owner[i]].push(...p.ids));
   return out.filter((g) => g.length);
 }
-/** Nombre de secteurs conseillé pour un village : environ 130 foyers chacun. */
+/* ── Le plan de l'amicale (novembre 2026) : pour chaque village, secteur → rues.
+   « Rue : 1, 2, 3 » ne prend que ces numéros ; la même rue citée seule dans un autre secteur prend le reste.
+   Pour déplacer une rue, changez-la de ligne puis changez PLAN_VER : le responsable se voit proposer le nouveau plan. */
+const PLAN_VER = '2026-11-10';
+const PLAN = {
+  'Seppois-le-Bas': {
+    '– Rue du Gobenwald': ["Impasse des Merles", "Rue des Écureuils", "Rue des Pinsons", "Rue des Rossignols", "Rue du Gobenwald", "Rue du Réservoir"],
+    'est': ["Rue de Bâle", "Rue du Hummelberg"],
+    'nord-est': ["Rue de la Gare", "Rue des Charrons", "Rue du G.M.A.", "Rue du Ried"],
+    'sud': ["Rue de la Forêt", "Rue du Général Jacques Pol"],
+    'sud-est': ["Place du Marché", "Rue de l'Église", "Rue du Château", "Rue du Général Bataille", "Rue Françoise Beucler"],
+    'ouest': ["Rue des Étangs", "Rue Édouard Braun"],
+    'nord': ["Impasse Bellevue", "Place de la Fontaine", "Rue d'Altkirch", "Rue des Jardins", "Rue des Tilleuls", "Rue du Chemin Creux", "Rue du Herrenweg", "Rue du Jardin de Julie", "Rue Paul Boetsch"],
+    'nord-ouest': ["Rue des Prés", "Rue du Père Stern"],
+    '– Rue de Dannemarie': ["Rue de Dannemarie", "Rue de la Largue", "Rue des Cigognes"],
+    'sud-ouest': ["Impasse des Aubépines", "Rue de l'Aérium", "Rue des Champs", "Rue des Juifs", "Rue des Malgré-Nous", "Rue du R.I.C.M."],
+  },
+  'Largitzen': {
+    'ouest': ["Rue d'Ueberstrass", "Rue de Seppois", "Rue du Cimetière"],
+    'nord': ["Rue de Hirsingue", "Rue des Bois"],
+    // La traversée du village, de la route de Hirtzbach jusqu'au croisement de la rue du Cimetière
+    'est': ["Rue de Friesen", "Rue de Hirtzbach", "Rue de Seppois : 1, 2, 3, 4, 5, 6, 6 a, 7, 7 a, 8, 9, 10, 12, 13"],
+    'sud': ["Rue de Luffendorf", "Rue des Jardins", "Rue des Vergers", "Rue du Ruisseau"],
+  },
+  'Mooslargue': {
+    'sud': ["Rue des Prés", "Rue Principale"],
+    'nord': ["Rue Bellevue", "Rue de Bisel", "Rue de Seppois", "Rue des Binnen", "Rue du Calvaire", "Rue du Golf", "Rue du Moulin"],
+    'est': ["Rue de Durlinsdorf", "Rue de l'Église", "Rue de Moernach", "Rue des Vergers"],
+  },
+  'Pfetterhouse': {
+    'sud-ouest': ["Rue de la Suisse", "Rue des Abeilles", "Rue des Cerisiers"],
+    'sud-est': ["Rue de la Chapelle", "Rue des Pins", "Rue du Réservoir"],
+    'nord-est': ["Rue de Moos"],
+    'est': ["Impasse des Écoles", "Rue de la Montagne", "Rue du Sundgau"],
+    'nord-ouest': ["Rue de la Laiterie", "Rue de Seppois", "Rue des Étangs", "Rue des Jardins", "Rue des Vergers", "Rue Joseph Meister"],
+    'ouest': ["Rue de la Libération", "Rue de Réchésy", "Rue du Steinengweg"],
+    'sud': ["Rue de Gerschwiller", "Rue de la Tuilerie", "Rue du Chêne", "Rue du Vallon"],
+    'nord': ["Place Saint-Géréon", "Rue de Courtavon", "Rue du Rosers"],
+    '– Rue des Lupins': ["Chemin du Grossfeldweg", "Route de Mooslargue", "Rue de la Forêt", "Rue des Lupins", "Rue des Prés"],
+    '– Rue de la Gare': ["Rue de la Gare", "Rue du Chemin de Fer"],
+  },
+  'Ueberstrass': {
+    'sud': ["Impasse des Lilas", "Rue du Ruisseau", "Rue du Stade"],
+    'nord': ["Grand'Rue", "Rue de Largitzen", "Rue des Noisetiers", "Rue des Roseaux"],
+    // La Grand'Rue, de la rue de Seppois jusqu'au croisement de la rue de Largitzen
+    'est': ["Grand'Rue : 1, 2, 3, 4, 6, 7, 8, 9, 9 bis, 10, 11, 12, 12 a, 12 b, 14, 15, 16, 20", "Impasse de l'Église", "Impasse de la Forêt", "Impasse de la Nature", "Impasse des Hérissons", "Rue de la Carrière", "Rue de Seppois", "Rue Saint-Jean", "Rue Septergass"],
+    'ouest': ["Impasse des Prés", "Route de Delle", "Rue de la Chapelle", "Rue des Étangs", "Rue des Vergers", "Rue du Grunenwald", "Rue du Sundgau"],
+  },
+};
+const planK = (com) => (PLAN[com] ? Object.keys(PLAN[com]).length : 0);
+const planKs = () => Object.fromEntries(COMMUNES.map((c) => [c, planK(c) || defaultK(c)]));
+/** Les secteurs du plan pour un village. Une adresse que le plan ne cite pas suit sa voisine la plus proche. */
+function planGroups(com, list) {
+  const bySt = new Map(), owner = new Map();
+  for (const a of list) { if (!bySt.has(a.street)) bySt.set(a.street, []); bySt.get(a.street).push(a); }
+  const groups = Object.keys(PLAN[com]).map((key) => ({ name: `${com} ${key}`, ids: [] }));
+  // D'abord les numéros cités, ensuite les rues entières, qui prennent ce qui reste
+  for (const cited of [true, false]) Object.values(PLAN[com]).forEach((rues, g) => {
+    for (const r of rues) {
+      const [street, nums] = r.split(' : ');
+      if (!!nums !== cited) continue;
+      const only = nums && new Set(nums.split(', '));
+      for (const a of bySt.get(street) || []) if (!owner.has(a.id) && (!only || only.has(a.num))) owner.set(a.id, g);
+    }
+  });
+  const placed = list.filter((a) => owner.has(a.id));
+  for (const a of list) {
+    let g = owner.get(a.id);
+    if (g == null) { let best = Infinity; g = 0; for (const p of placed) { const d = distM([a.lat, a.lon], [p.lat, p.lon]); if (d < best) { best = d; g = owner.get(p.id); } } }
+    groups[g].ids.push(a.id);
+  }
+  return groups.filter((g) => g.ids.length);
+}
+/** Vrai quand les secteurs en place ne sont pas ceux du plan. */
+const planDiffers = () => memo('plandiff', () => {
+  const zs = zones(), want = villageGroups(planKs()), byName = new Map(zs.map((z) => [z.name, z]));
+  return zs.length !== want.length || want.some((g) => { const z = byName.get(g.name); if (!z || z.addrs.length !== g.ids.length) return true; const has = new Set(z.addrs); return g.ids.some((id) => !has.has(id)); });
+});
+const planOffer = () => Role.admin && !Store.demoOn && UI.planSeen !== PLAN_VER && zones().length > 0 && planDiffers();
+/** La plus grande rue d'un groupe d'adresses : elle nomme les secteurs en plus des huit orientations. */
+const mainStreet = (ids) => { const m = new Map(), idx = addrIdx(); for (const id of ids) { const st = idx.get(id)?.street; if (st) m.set(st, (m.get(st) || 0) + unitsOf(id).length); } return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fr'))[0]?.[0] || ''; };
+function planCard() {
+  if (!planOffer()) return '';
+  const k = planKs();
+  return `<section class="card plan-card">
+      <div class="card-h"><h2>Plan des secteurs corrigé</h2><span class="muted">${pl(sum(Object.values(k)), 'secteur')}</span></div>
+      <p class="muted" style="margin:0 0 12px">${COMMUNES.map((c) => `${esc(c)} ${k[c]}`).join(' · ')}. Les rues ont été replacées comme demandé et chaque secteur porte un nom unique. Un secteur qui garde son nom garde son code et son équipe.</p>
+      <div class="grid2">
+        <button class="btn block" data-act="plan-apply">${ico('sparkle')} Appliquer le plan</button>
+        <button class="btn ghost block" data-act="plan-skip">Plus tard</button>
+      </div>
+    </section>`;
+}
+/** Nombre de secteurs conseillé pour un village : celui du plan, sinon environ 130 foyers chacun. */
 const comUnits = (com) => memo('cu:' + com, () => sum(addrs().filter((a) => a.com === com), (a) => unitsOf(a.id).length));
-const defaultK = (com) => clamp(Math.ceil(comUnits(com) / 130), 1, 8);
+const defaultK = (com) => planK(com) || clamp(Math.ceil(comUnits(com) / 130), 1, 8);
 const autoK = () => Object.fromEntries(COMMUNES.map((c) => [c, clamp((UI.autoK || {})[c] ?? defaultK(c), 1, MAX_K)]));
-/** Découpe chaque village en k secteurs compacts, nommés nord / est / sud / ouest. */
+/** Découpe chaque village en k secteurs : ceux du plan quand k est le nombre du plan, sinon k quartiers compacts nommés nord / est / sud / ouest. */
 const DIR4 = ['nord', 'est', 'sud', 'ouest'];
 const DIR8 = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest'];
 function villageGroups(ks) {
@@ -873,6 +966,7 @@ function villageGroups(ks) {
     for (const a of list) { if (!bySt.has(a.sk)) bySt.set(a.sk, []); bySt.get(a.sk).push(a); }
     const items = [...bySt.values()].map((arr) => ({ ids: arr.map((a) => a.id), w: sum(arr, (a) => unitsOf(a.id).length), lat: sum(arr, (a) => a.lat) / arr.length, lon: sum(arr, (a) => a.lon) / arr.length }));
     const kk = clamp(typeof per === 'number' ? per : per[com] || 1, 1, Math.min(items.length, MAX_K));
+    if (kk === planK(com)) { out.push(...planGroups(com, list)); continue; }
     const groups = growRegions(items, kk).filter((g) => g.length);
     const c = [sum(list, (a) => a.lat) / list.length, sum(list, (a) => a.lon) / list.length];
     const kx = Math.cos((c[0] * Math.PI) / 180);
@@ -885,7 +979,7 @@ function villageGroups(ks) {
     if (withAng.length === 1) { out.push({ name: com, ids: withAng[0].ids }); continue; }
     // Chaque groupe prend l'orientation la plus proche, sans doublon
     const dirs = withAng.length <= 4 ? DIR4 : DIR8;
-    const step = 360 / dirs.length, taken = new Set(), extra = {};
+    const step = 360 / dirs.length, taken = new Set();
     const gap = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
     // On sert d'abord les groupes dont l'orientation est la plus franche
     [...withAng]
@@ -894,17 +988,22 @@ function villageGroups(ks) {
       .forEach(({ g, best }) => {
         const choice = best.find((o) => !taken.has(o.j));
         if (choice) { taken.add(choice.j); out.push({ name: `${com} ${dirs[choice.j]}`, ids: g.ids }); return; }
-        // Plus de secteurs que d'orientations : on numérote sur l'orientation la plus proche
-        const j = best[0].j;
-        extra[j] = (extra[j] || 1) + 1;
-        out.push({ name: `${com} ${dirs[j]} ${extra[j]}`, ids: g.ids });
+        // Plus de secteurs que d'orientations : jamais deux « nord-est », le secteur prend le nom de sa plus grande rue
+        out.push({ name: `${com} – ${mainStreet(g.ids)}`, ids: g.ids });
       });
   }
   return out;
 }
 function replaceZonesNamed(list) {
-  for (const z of zones()) Store.put('zone', z.id, { ...z, del: true });
-  list.forEach((g, i) => { const id = uid('z'); Store.put('zone', id, { id, name: g.name, code: newZoneCode(), color: ZONE_COLORS[i % ZONE_COLORS.length], addrs: g.ids, members: [], order: i }); });
+  // Un secteur qui garde son nom garde son code et son équipe : les billets déjà donnés restent bons
+  const olds = [...zones()], byName = new Map(), kept = new Set();
+  for (const z of olds) if (!byName.has(z.name)) byName.set(z.name, z);
+  list.forEach((g, i) => {
+    const z = byName.get(g.name); if (z) kept.add(z.id);
+    const id = z ? z.id : uid('z');
+    Store.put('zone', id, { id, name: g.name, code: (z && z.code) || newZoneCode(), color: ZONE_COLORS[i % ZONE_COLORS.length], addrs: g.ids, members: z ? z.members || [] : [], order: i });
+  });
+  for (const z of olds) if (!kept.has(z.id)) Store.put('zone', z.id, { ...z, del: true });
 }
 function replaceZones(groups, namer) {
   for (const z of zones()) Store.put('zone', z.id, { ...z, del: true });
@@ -1114,7 +1213,7 @@ function renderHome() {
     </section>
   </div>
   <div class="home-col">
-    ${Role.admin ? `${fieldCard()}<section class="card">
+    ${Role.admin ? `${planCard()}${fieldCard()}<section class="card">
       <div class="card-h"><h2>Les secteurs</h2><span class="muted">${pl(zs.length, 'secteur')}</span></div>
       <div class="grid2">
         <button class="btn block" data-act="zone-build">${ico('plus')} Créer un secteur</button>
@@ -1537,10 +1636,10 @@ function renderAdmin() {
       <button class="btn ghost block" style="margin-top:8px" data-act="auto-open" aria-pressed="${!!UI.auto}">${ico('sparkle')} Répartition automatique${UI.auto ? '' : ` · ${pl(sum(Object.values(autoK())), 'secteur')}`}</button>
       ${UI.auto ? `<div class="quick" style="margin-top:14px">
         <button class="btn block" data-act="auto-com">Un secteur par commune (${COMMUNES.length})</button>
-        <div class="note-box">Chaque village est coupé en quartiers <b>d’un seul tenant</b> — nord, est, sud, ouest — sans trou ni enclave. Les rues restent entières. Choisissez le nombre de secteurs village par village.</div>
+        <div class="note-box">Avec les nombres conseillés, c’est <b>le plan de l’amicale</b> qui s’applique, rue par rue. Changez un nombre et ce village est redécoupé en quartiers <b>d’un seul tenant</b>, sans trou ni enclave.</div>
         ${(() => { const k = autoK(); return COMMUNES.map((c) => `<div class="set-row"><div class="t"><b>${esc(c)}</b><small>${nf(comUnits(c))} foyers · ≈ ${nf(Math.round(comUnits(c) / k[c]))} par secteur</small></div><div class="stepper" style="min-width:140px"><button data-act="auto-k" data-com="${esc(c)}" data-v="-1" aria-label="Un secteur de moins à ${esc(c)}">${ico('minus')}</button><b>${k[c]}</b><button data-act="auto-k" data-com="${esc(c)}" data-v="1" aria-label="Un secteur de plus à ${esc(c)}">${ico('plus')}</button></div></div>`).join(''); })()}
         <button class="link" data-act="auto-reset-k" style="justify-self:start">Revenir aux nombres conseillés</button>
-        ${zs.some((z) => z.code) ? '<div class="note-box">Remplacer les secteurs leur donne de <b>nouveaux codes</b> : les billets déjà distribués ne marcheront plus.</div>' : ''}
+        ${zs.some((z) => z.code) ? '<div class="note-box">Un secteur qui garde son nom garde <b>son code et son équipe</b>. Les autres reçoivent un nouveau code : leurs billets sont à réimprimer.</div>' : ''}
         ${(() => { const t = sum(Object.values(autoK())); return `<button class="btn block" data-act="auto-go">${ico('sparkle')} ${zs.length ? `Remplacer par ${pl(t, 'secteur')}` : `Créer ${pl(t, 'secteur')}`}</button>`; })()}
       </div>` : ''}
     </section>
@@ -3136,8 +3235,20 @@ const A = {
   'auto-go': () => {
     const list = villageGroups();
     replaceZonesNamed(list); UI.auto = false; App.changed();
-    toast(`${pl(list.length, 'secteur')} créés, d’un seul tenant et rues entières. Attribuez-les à vos équipes.`, { ms: 6000 });
+    toast(`${pl(list.length, 'secteur')} en place. Attribuez-les à vos équipes.`, { ms: 6000 });
   },
+  'plan-apply': () => {
+    if (!Role.admin || Store.demoOn) return;
+    const before = zones().map((z) => ({ ...z })), list = villageGroups(planKs());
+    replaceZonesNamed(list); UI.planSeen = PLAN_VER; saveUI(); App.changed();
+    toast(`Plan appliqué : ${pl(list.length, 'secteur')}. Réimprimez les billets des secteurs qui ont changé de nom.`, { ms: 9000, undo: () => {
+      const back = new Set(before.map((z) => z.id));
+      for (const z of zones()) if (!back.has(z.id)) Store.put('zone', z.id, { ...z, del: true });
+      for (const z of before) Store.put('zone', z.id, z);
+      UI.planSeen = ''; saveUI(); App.changed(); toast('Les secteurs d’avant sont revenus.');
+    } });
+  },
+  'plan-skip': () => { UI.planSeen = PLAN_VER; saveUI(); App.changed(); toast('D’accord. Le plan reste disponible dans « Répartition automatique ».', { ms: 5000 }); },
   'unassigned-map': () => { UI.zone = '__none'; UI.filter = 'all'; UI.mapMode = 'map'; saveUI(); Page.close(); go('map'); },
   'unassigned-new': () => { ZE = newZE(); unassigned().forEach((a) => ZE.addrs.add(a.id)); ZE.only = true; Page.open('zone'); },
   'export-csv': () => exportCSV(),

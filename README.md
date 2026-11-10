@@ -53,7 +53,7 @@ Pour **déconnecter tous les appareils** (responsables et distributeurs), change
 - **Répartition des rues**, le cœur de l'app, pour qu'aucune maison ne soit oubliée :
   - **par rue** : cocher une rue entière, un côté (pair ou impair) ou des maisons précises ;
   - **sur la carte** : toucher une rue pour l'ajouter ou la retirer entière, ou entourer des maisons au doigt ;
-  - **automatique** : un secteur par commune, ou des quartiers par village — vous choisissez le nombre de secteurs village par village (jusqu'à 20), l'app découpe en blocs d'un seul tenant (nord, est, sud, ouest), rues entières et foyers équilibrés ;
+  - **automatique** : avec les nombres conseillés (Seppois-le-Bas 10, Largitzen 4, Mooslargue 3, Pfetterhouse 10, Ueberstrass 4), c'est **le plan de l'amicale** qui s'applique, rue par rue — il est écrit dans `app.js` (`PLAN`) : pour déplacer une rue, changez-la de ligne et changez `PLAN_VER`, le responsable se voit proposer le nouveau plan. Si vous changez le nombre de secteurs d'un village, l'app le redécoupe en blocs d'un seul tenant (nord, est, sud, ouest ; au-delà de huit, le secteur porte le nom de sa plus grande rue). Un secteur qui garde son nom garde son code et son équipe ;
   - une maison n'appartient qu'à **un seul** secteur ;
   - le compteur **« adresses sans équipe »** et la page pour les ranger rue par rue garantissent que tout est couvert ;
   - **Partager** copie la répartition en texte, prête à coller dans le groupe de l'amicale.
