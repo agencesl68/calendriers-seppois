@@ -630,8 +630,7 @@ select.input.sm { padding-right: 30px; }
   .amt-grid button { min-height: 50px; font-size: 21px; }
   .tour-nav { gap: 6px; }
   .tour-nav .btn { padding: 0 10px; font-size: 15px; }
-  .rp-item { grid-template-columns: auto 1fr; gap: 8px 10px; padding: 11px 12px; }
-  .rp-quick { grid-column: 1 / -1; justify-content: flex-start; }
+  .rp-item { gap: 8px 10px; padding: 11px 12px; }
   .zs-check { width: 48px; }
   .zs-name { padding: 10px 11px; }
   .page-body { padding-inline: 12px; }

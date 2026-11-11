@@ -168,7 +168,7 @@ const Sync = {
   start() {
     this.stop();
     if (!this.configured || !this.code) { this.set('local'); return; }
-    this.timer = setInterval(() => { if (document.visibilityState === 'visible' && ((Role.admin && UI.view === 'map') || Date.now() - this.lastOk > 18000)) this.cycle(); }, 10000);
+    this.timer = setInterval(() => { if (document.visibilityState === 'visible' && ((Role.admin && UI.view === 'map') || Date.now() - this.lastOk > 18000)) this.cycle(); }, 5000);
     this._p = this.cycle();
   },
   stop() { clearInterval(this.timer); clearTimeout(this._t); this.timer = 0; this.gen++; },
@@ -203,7 +203,7 @@ const Sync = {
   async cycle() {
     if (!this.configured || !this.code || this._busy) return;
     if (!navigator.onLine) { this.set('offline'); return; }
-    const gen = this.gen;
+    const gen = this.gen, known = this.since > 0, fresh = [];
     this._busy = true; this.set('syncing');
     try {
       for (let guard = 0; guard < 30; guard++) {
@@ -213,14 +213,14 @@ const Sync = {
         for (const it of batch) { const k = it.kind + ':' + it.id; if (this.queue[k]?.updated_at === it.updated_at) delete this.queue[k]; }
         LS.set(K.queue, this.queue);
         let changed = false;
-        for (const it of j.items || []) if (Store.applyRemote(it)) changed = true;
+        for (const it of j.items || []) if (Store.applyRemote(it)) { changed = true; if (known && it.kind === 'passage') fresh.push(it); }
         if (changed) { Store.rev++; clearTimeout(Store._t); LS.set(K.state, Store.live); App.changed(); }
         if (j.now) { this.since = j.now; LS.set(K.since, j.now); }
         if (j.sheet && j.sheet !== this.sheet) { this.sheet = j.sheet; LS.set(K.sheet, j.sheet); }
         if (!this.pending || !batch.length) break;
       }
       this.lastOk = Date.now(); this.set('online');
-      adminCheckIn(); planAuto();
+      adminCheckIn(); planAuto(); liveToast(fresh);
     } catch (e) {
       if (gen !== this.gen) return;
       const msg = e?.name === 'AbortError' ? 'Le serveur met trop de temps à répondre' : e?.message || String(e);
@@ -326,6 +326,15 @@ function adminDemote(msg) {
   LS.del(K.adminKey); Role.set('distrib');
   if (Page.cur) Page.close(); Sheet.close(); go('map');
   toast(msg, { ms: 10000 });
+}
+/** Le responsable est prévenu dès qu'une porte est notée sur un autre téléphone (les passages anciens qui arrivent en retard ne dérangent pas). */
+function liveToast(items) {
+  if (!Role.admin || Store.demoOn) return;
+  const now = Date.now(), list = items.filter((it) => it.data && has(STATUS, it.data.status) && it.data.status !== 'todo' && now - (+it.data.at || 0) < 15 * 60000);
+  if (!list.length) return;
+  if (list.length > 1) { toast(`${list.length} portes notées à l’instant sur le terrain.`, { ms: 5000 }); return; }
+  const it = list[0], u = unitIdx().get(it.id), who = names(idList(it.data.by));
+  toast(`${who ? who + ' · ' : ''}${u ? unitTitle(u) : 'Une porte'} · ${STATUS[it.data.status].label}`, { ms: 5000 });
 }
 /** Après chaque synchro réussie (donc avec les réglages de l'équipe à jour) : cet appareil prend sa place, ou la rend. */
 function adminCheckIn() {
@@ -1475,10 +1484,12 @@ function tourNext(dir = 1) {
   TD = freshTD(T.cur); saveUI();
 }
 const tourScrollTop = () => requestAnimationFrame(() => { const v = $('#v-tour'), card = $('.door-card', v); if (card && card.getBoundingClientRect().top < v.getBoundingClientRect().top) v.scrollTo({ top: Math.max(0, card.offsetTop - 120), behavior: 'smooth' }); });
-function tourSave(status, extra = {}) {
+function tourSave(status) {
   const id = UI.tour.cur; if (!id) return;
   const p = pass(id), u = unitIdx().get(id), team = Me.team();
-  const prev = savePassage(id, { status, name: p?.name || '', note: p?.note || '', rp: extra.rp || null, by: team.length ? team : p?.by || [] });
+  // La note saisie avant d'appuyer accompagne le bouton : consigne de repasse pour « Absent » et « À repasser », note du foyer sinon
+  const typed = TD.mode === 'note' ? (TD.rpNote || '').trim() : null, later = status === 'absent' || status === 'repasse';
+  const prev = savePassage(id, { status, name: p?.name || '', note: !later && typed ? typed : p?.note || '', rp: later ? tourRp(typed ?? p?.rp?.note) : null, by: team.length ? team : p?.by || [] });
   vibrate(18);
   toast(`${unitTitle(u)} · ${STATUS[status].short}${team.length ? '' : ' · sans nom'}`, {
     undo: () => { restorePassage(id, prev); UI.tour.cur = id; TD = freshTD(id); saveUI(); App.changed(); },
@@ -1534,7 +1545,9 @@ function renderTour() {
           <button class="link" data-act="tour-bld" style="font-size:13.5px">${cur.n > 1 ? `Immeuble · ${cur.n} logements` : 'Plusieurs logements ?'}</button>
         </div>
       </div>
-      ${TD.mode === 'later' ? tourLaterForm() : tourActs()}
+      ${TD.mode === 'note' ? `<input id="td-rpnote" class="input" placeholder="Note (ex. revenir après 18 h, sonner derrière)" value="${esc(TD.rpNote)}" enterkeyhint="done" aria-label="Note pour ce foyer">` : ''}
+      ${tourActs()}
+      ${TD.mode === 'note' ? '<p class="muted" style="margin:0;font-size:13.5px;text-align:center">Touchez ensuite le bouton qui convient : la note part avec.</p>' : `<button class="link" data-act="td-note" style="justify-self:center">${p?.rp?.note ? 'Modifier la note' : '+ Ajouter une note (facultatif)'}</button>`}
     </article>
     <div class="tour-nav">
       <button class="btn ghost" data-act="tour-prev">${ico('chev-l')} Précédente</button>
@@ -1553,7 +1566,7 @@ function tourActs() {
   return `<div class="acts">
     <button class="act big" data-st="done" data-act="td-done">${ico('check')} Calendrier donné</button>
     <button class="act" data-st="absent" data-act="td-absent">${ico('absent')}Absent</button>
-    <button class="act" data-st="repasse" data-act="td-later">${ico('repeat')}À repasser</button>
+    <button class="act" data-st="repasse" data-act="td-repasse">${ico('repeat')}À repasser</button>
     <button class="act" data-st="refus" data-act="td-refus">${ico('ban')}Refus</button>
   </div>`;
 }
@@ -1562,13 +1575,6 @@ function tourActs() {
 function tourRp(note) {
   const o = pass(UI.tour.cur)?.rp, keep = !!o?.date && o.date > isoDay();
   return { date: keep ? o.date : '', slot: keep ? o.slot || '' : '', note: note || '' };
-}
-function tourLaterForm() {
-  return `<div class="quick">
-    <label class="lbl" for="td-rpnote">À repasser · une précision ? (facultatif)</label>
-    <input id="td-rpnote" class="input" placeholder="Ex. revenir après 18 h, sonner derrière" value="${esc(TD.rpNote)}" enterkeyhint="done" aria-label="Note pour la repasse">
-    <div class="grid2"><button class="btn ghost" data-act="td-mode" data-v="">Annuler</button><button class="btn st-btn" data-st="repasse" data-act="td-save-later">Valider · suivante</button></div>
-  </div>`;
 }
 function tourSetup() {
   const S = stats(), zi = zoneIndex();
@@ -1823,11 +1829,11 @@ function drawUnitSheet() {
   </header>
   <div class="sheet-body">
     <div class="st-pick">${['done', 'absent', 'repasse', 'refus'].map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
-    ${d.status === 'absent' || d.status === 'repasse' ? `
+    ${d.status === 'absent' || d.status === 'repasse' ? `${Role.admin ? `
       <div class="field"><span class="lbl">Jour de repasse (facultatif)</span>
         <div class="chips wrap"><button class="chip" data-act="as-rpdate" data-v="" aria-pressed="${!d.rp.date}">Sans date</button>${dateChoices().map(([v, l]) => `<button class="chip" data-act="as-rpdate" data-v="${v}" aria-pressed="${d.rp.date === v}">${l}</button>`).join('')}<label class="chip date-chip">${ico('cal', 'sm')}<input type="date" data-bind="rp.date" value="${esc(d.rp.date)}" aria-label="Autre date"></label></div>
       </div>
-      <div class="chips wrap">${Object.entries(SLOTS).map(([k, l]) => `<button class="chip" data-act="as-slot" data-v="${k}" aria-pressed="${d.rp.slot === k}">${l}</button>`).join('')}</div>
+      <div class="chips wrap">${Object.entries(SLOTS).map(([k, l]) => `<button class="chip" data-act="as-slot" data-v="${k}" aria-pressed="${d.rp.slot === k}">${l}</button>`).join('')}</div>` : ''}
       <input class="input" data-bind="rp.note" value="${esc(d.rp.note)}" placeholder="Ex. revenir après 18 h, sonner derrière" aria-label="Consigne pour la repasse">` : ''}
     <details class="more" ${d.name || d.note ? 'open' : ''}><summary>Occupant et note</summary><div>
       <div class="field"><label for="as-name">Nom (facultatif)</label><input id="as-name" class="input" data-bind="name" value="${esc(d.name)}" placeholder="Seulement si c'est utile pour repasser"></div>
@@ -2423,7 +2429,15 @@ const ROAD_W = [5, 4.5, 3.6, 2.2, 1.4, 1.1];
 function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 const MapView = {
   map: null, layer: 'plan', sel: null, selStreet: null, lasso: null, route: null, labels: [], _hit: [], _r: 4, _c: null,
-  show() { if (!this.map) this.init(); else { this.map.invalidateSize(); this.size(); this.draw(); } },
+  show() { if (!this.map) this.init(); else { this.map.invalidateSize(); this.size(); this.autoFit(); this.draw(); } },
+  /** Recadre la carte quand ce qu'elle doit montrer a changé (secteur saisi ou reçu) ou qu'elle n'a encore jamais été cadrée à sa vraie taille. */
+  autoFit() {
+    if (!this.map || $('#v-map').hidden || UI.mapMode !== 'map' || this.route || this.lasso) return;
+    const sz = this.map.getSize(); if (!sz.x || !sz.y) return;
+    const key = Role.admin ? 'admin' : `d:${Sector.code || ''}:${myAddrSet().size}`;
+    if (key === this._fitKey) return;
+    this._fitKey = key; this.fit(false);
+  },
   init() {
     if (!window.L) return;
     const map = (this.map = L.map('map', { zoomControl: false, minZoom: 11.5, maxZoom: 20, zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 90, maxBounds: [[47.465, 7.08], [47.6, 7.28]], maxBoundsViscosity: 0.7 }));
@@ -2455,7 +2469,7 @@ const MapView = {
     cv.addEventListener('pointercancel', () => { if (this.lasso) { this.lasso.path = null; this._pan = null; this.draw(); } });
     cv.addEventListener('contextmenu', (e) => { if (this.lasso) e.preventDefault(); }); // le clic droit sert à déplacer la carte
     this.size(); this.styleRoads(); this.refresh();
-    requestAnimationFrame(() => { map.invalidateSize(); this.size(); this.fit(false); });
+    requestAnimationFrame(() => { map.invalidateSize(); this.size(); this.autoFit(); });
     document.fonts?.ready?.then(() => this.draw());
   },
   col() {
@@ -2537,7 +2551,7 @@ const MapView = {
     Geo.onFirst = () => { if (this.map && UI.view === 'map') this.map.setView([Geo.pos.lat, Geo.pos.lon], 18); };
     if (Geo.start()) toast('Recherche de votre position…', { ms: 2500 });
   },
-  refresh() { this.draw(); },
+  refresh() { this.autoFit(); this.draw(); },
   nearest(p) {
     let best = null, bd = Infinity;
     for (const [a, pt] of this._hit) { const d = Math.hypot(pt.x - p.x, pt.y - p.y); if (d < bd) { bd = d; best = a; } }
@@ -2833,6 +2847,21 @@ const MapView = {
       }
     }
     ctx.restore(); // fin de l'ombre des pastilles
+    if (Role.admin && !L0) {
+      // Ce qui vient d'être fait sur le terrain saute aux yeux : double anneau autour des portes notées depuis moins de 3 minutes
+      const now = Date.now(); let live = false;
+      for (const [a, p, st, cnt] of hits) {
+        let at = 0, s = st;
+        for (const u of unitsOf(a.id)) { const q = pass(u.id); if (q && q.status !== 'todo' && q.at > at) { at = q.at; s = q.status; } }
+        if (!at || now - at > 180000) continue;
+        live = true;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r + 6, 0, Math.PI * 2); ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.stroke();
+        ctx.lineWidth = 3; ctx.strokeStyle = c.st[s] || c.red; ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, r + 13, 0, Math.PI * 2); ctx.lineWidth = 2; ctx.globalAlpha = 0.5; ctx.stroke(); ctx.globalAlpha = 1;
+      }
+      // L'anneau s'efface de lui-même : on redessine tant qu'il en reste
+      clearTimeout(this._liveT); if (live) this._liveT = setTimeout(() => this.draw(), 30000);
+    }
     if (r >= 6) {
       ctx.font = `800 ${r >= 10 ? 12 : r >= 8 ? 10.5 : 9}px Barlow, system-ui, sans-serif`;
       ctx.lineWidth = 2.6; ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.fillStyle = '#fff';
@@ -3109,12 +3138,11 @@ const A = {
   'tour-detail': () => UI.tour.cur && openUnit(UI.tour.cur, { tour: true }),
   'tour-bld': () => { const u = unitIdx().get(UI.tour.cur); if (u) openBuilding(u.a.id, { tour: true }); },
   'tour-order': (el) => { UI.tour.order = el.dataset.v; saveUI(); App.changed(); },
-  'td-mode': (el) => { TD.mode = el.dataset.v || null; App.changed(); },
-  'td-later': () => { TD.mode = 'later'; TD.rpNote = pass(UI.tour.cur)?.rp?.note || ''; App.changed(); },
+  'td-note': () => { TD.mode = 'note'; TD.rpNote = pass(UI.tour.cur)?.rp?.note || ''; renderTour(); $('#td-rpnote')?.focus(); },
   'td-refus': () => tourSave('refus'),
-  'td-absent': () => tourSave('absent', { rp: tourRp(pass(UI.tour.cur)?.rp?.note) }),
+  'td-absent': () => tourSave('absent'),
+  'td-repasse': () => tourSave('repasse'),
   'td-done': () => tourSave('done'),
-  'td-save-later': () => tourSave('repasse', { rp: tourRp(TD.rpNote) }),
   member: (el) => { Sheet.close(); Page.open('member', { id: el.dataset.v }); },
   'mem-color': (el) => { const m = member(el.dataset.id); if (m) Store.put('member', m.id, { ...m, color: el.dataset.v }); },
   'mem-remove': (el) => {
