@@ -624,11 +624,13 @@ function repasses() {
     for (const u of units()) {
       if (!visibleAddr(u.a)) continue;
       const p = pass(u.id);
-      if (p && (p.status === 'repasse' || (p.status === 'absent' && p.rp?.date))) out.push({ u, a: u.a, p, date: p.rp?.date || '', slot: p.rp?.slot || '' });
+      if (p && (p.status === 'repasse' || p.status === 'absent')) out.push({ u, a: u.a, p, date: p.rp?.date || '', slot: p.rp?.slot || '' });
     }
     return out.sort((x, y) => (x.date || '9999').localeCompare(y.date || '9999') || so[x.slot] - so[y.slot] || x.a.ci - y.a.ci || sortKey(x.a.street).localeCompare(sortKey(y.a.street)) || numCmp(x.a, y.a) || x.u.k - y.u.k);
   });
 }
+/** À repasser maintenant : absents et repasses, sauf celles datées pour plus tard. */
+const repDue = () => { const today = isoDay(); return repasses().filter((r) => !r.date || r.date <= today); };
 /** Cherche une adresse précise : « 12 bâle », « 3 cigognes ». Sans numéro, on laisse la recherche de rues. */
 function searchAddrs(q) {
   const toks = norm(q).split(/\s+/).filter(Boolean);
@@ -665,7 +667,7 @@ function savePassage(unitId, d) {
   if (last && last.s === status && now - last.at < 20 * 60000) hist[hist.length - 1] = entry;
   else if (status !== 'todo') hist.push(entry);
   let rp = null;
-  if (status === 'repasse' || (status === 'absent' && d.rp?.date)) rp = { date: d.rp?.date || '', slot: d.rp?.slot || '', note: (d.rp?.note || '').trim(), done: false };
+  if (status === 'repasse' || (status === 'absent' && (d.rp?.date || (d.rp?.note || '').trim()))) rp = { date: d.rp?.date || '', slot: d.rp?.slot || '', note: (d.rp?.note || '').trim(), done: false };
   Store.put('passage', unitId, {
     status, at: now, by: status === 'todo' ? [] : by,
     name: (d.name || '').trim(), note: (d.note || '').trim(), rp,
@@ -675,12 +677,6 @@ function savePassage(unitId, d) {
   return prev;
 }
 function restorePassage(id, prev) { Store.put('passage', id, prev ? { ...prev } : { status: 'todo', at: Date.now(), by: [], hist: [] }); }
-function quickRp(unitId, date) {
-  const p = clone(pass(unitId)); if (!p) return;
-  p.rp = { date, slot: p.rp?.slot || '', note: p.rp?.note || '', done: false };
-  Store.put('passage', unitId, p);
-  toast(`Repasse ${dayLabel(date).toLowerCase()} · ${unitTitle(unitIdx().get(unitId))}`);
-}
 function setBld(addrId, n, labels) {
   const cur = Store.s.bld[addrId] || {};
   n = clamp(n | 0, 1, 99);
@@ -1183,7 +1179,7 @@ function renderHeader() {
   btn.style.background = m ? m.color : '';
   btn.title = m ? `Tournée de ${names(Me.team())}` : 'Qui fait la tournée ?';
   $('#demo-banner').hidden = !Store.demoOn;
-  const today = isoDay(), due = repasses().filter((r) => r.date && r.date <= today).length;
+  const due = repDue().length;
   const b = $('#rep-badge'); b.hidden = !due; b.textContent = due;
   $$('.tabs > button').forEach((x) => (x.dataset.v === UI.view ? x.setAttribute('aria-current', 'page') : x.removeAttribute('aria-current')));
   const tTab = $('.tabs > button[data-v="team"] span');
@@ -1195,7 +1191,7 @@ function renderHeader() {
 function renderHome() {
   const el = $('#v-home'), S = stats(), set = Store.s.settings;
   const now = new Date(), today = isoDay();
-  const due = repasses().filter((r) => r.date && r.date <= today);
+  const due = repDue();
   const days = []; for (let k = 13; k >= 0; k--) days.push(addDays(today, -k));
   const maxD = Math.max(0, ...days.map((d) => S.byDay[d] || 0));
   const zs = zones(), miss = unassigned().length;
@@ -1217,7 +1213,7 @@ function renderHome() {
       <div class="hero-field">
         <div class="shield"><b>${nf(hero.st.done)}</b><span>donnés</span></div>
         <div class="shield"><b>${nf(hero.st.todo)}</b><span>à faire</span></div>
-        <div class="shield"><b>${nf(hero.st.absent + hero.st.repasse)}</b><span>à revoir</span></div>
+        <div class="shield"><b>${nf(hero.st.absent + hero.st.repasse)}</b><span>à repasser</span></div>
       </div>
     </section>
     <button class="btn red block big-cta" data-act="go" data-v="tour">${ico('door')} ${tourSt ? `Reprendre · ${esc(tourSt.name)}` : 'Commencer la tournée'}</button>
@@ -1230,7 +1226,7 @@ function renderHome() {
       <div class="card-h"><h2>Aujourd'hui</h2><span class="muted">${DOWL[now.getDay()]} ${now.getDate()} ${MON[now.getMonth()]}</span></div>
       <div class="today">
         <div class="kpi"><b>${S.byDay[today] || 0}</b><span>passages</span></div>
-        <div class="kpi"><b>${due.length}</b><span>repasses dues</span></div>
+        <div class="kpi"><b>${repasses().length}</b><span>à repasser</span></div>
         <div class="kpi"><b>${nf(S.st.todo)}</b><span>foyers restants</span></div>
       </div>
       ${due.length ? `<div class="mini-list">${due.slice(0, 4).map(repRow).join('')}</div>${due.length > 4 ? `<button class="link" data-act="go" data-v="rep">Voir les ${pl(due.length, 'repasse')}</button>` : ''}` : ''}
@@ -1319,7 +1315,7 @@ function streetMini(st) {
 }
 
 function repRow(r) {
-  const late = r.date < isoDay();
+  const late = !!r.date && r.date < isoDay();
   return `<button class="mini-row" data-act="unit" data-id="${r.u.id}"><span class="when" style="${late ? 'color:var(--danger)' : ''}">${late ? 'Retard' : SLOT_SHORT[r.slot] || '—'}</span><span class="dot" data-st="${r.p.status}"></span><span class="grow"><b>${esc(unitTitle(r.u))}</b><small>${esc([r.a.com, r.p.rp?.note || STATUS[r.p.status].label].join(' · '))}</small></span>${ico('chev-r', 'sm')}</button>`;
 }
 function evRow({ u, h }, timeOnly = false) {
@@ -1411,7 +1407,7 @@ function streetRows() {
   }
   const card = (st) => {
     const r = g(st);
-    const info = [r.st.todo ? `${r.st.todo} à faire` : 'Rue terminée', r.st.repasse ? `${r.st.repasse} à repasser` : '', r.st.absent ? `${r.st.absent} absents` : ''].filter(Boolean).join(' · ');
+    const info = [r.st.todo ? `${r.st.todo} à faire` : 'Rue terminée', r.st.repasse + r.st.absent ? `${r.st.repasse + r.st.absent} à repasser` : ''].filter(Boolean).join(' · ');
     return `<button class="street-row" data-act="street" data-v="${esc(st.sk)}"><div class="sr-top"><b>${esc(st.name)}</b><span>${r.visited}/${r.total}</span></div>${stackBar(r.st, r.total, 'sm')}<div class="sr-foot"><span class="grow">${info}</span>${r.members.size ? avatars([...r.members]) : ''}</div></button>`;
   };
   if (UI.sort !== 'alpha' || (Role.admin && UI.com)) return `<div class="street-list">${rows.map(card).join('')}</div>`;
@@ -1436,7 +1432,7 @@ function streetDetail(sk) {
     <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${r.total} foyers</span></div>
     <div class="kpi"><b>${r.st.done}</b><span>calendriers donnés</span></div>
     <div class="kpi"><b>${r.st.refus}</b><span>refus</span></div>
-    <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>absents · repasses</span></div>
+    <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>à repasser</span></div>
   </div>
   ${stackBar(r.st, r.total)}
   <button class="btn red block" data-act="tour-start" data-v="${esc(sk)}">${ico('door')} Démarrer la tournée dans cette rue</button>
@@ -1451,7 +1447,7 @@ function streetDetail(sk) {
 }
 
 // ═════════════════════════ Tournée (porte-à-porte)
-const freshTD = (id) => ({ id, mode: null, status: null, rpDate: '', rpSlot: '', rpNote: '' });
+const freshTD = (id) => ({ id, mode: null, rpNote: '' });
 let TD = freshTD(null);
 function tourList() {
   const T = UI.tour;
@@ -1556,19 +1552,22 @@ function renderTour() {
 function tourActs() {
   return `<div class="acts">
     <button class="act big" data-st="done" data-act="td-done">${ico('check')} Calendrier donné</button>
-    <button class="act" data-st="absent" data-act="td-later" data-v="absent">${ico('absent')}Absent</button>
-    <button class="act" data-st="repasse" data-act="td-later" data-v="repasse">${ico('repeat')}À repasser</button>
+    <button class="act" data-st="absent" data-act="td-absent">${ico('absent')}Absent</button>
+    <button class="act" data-st="repasse" data-act="td-later">${ico('repeat')}À repasser</button>
     <button class="act" data-st="refus" data-act="td-refus">${ico('ban')}Refus</button>
   </div>`;
 }
 
+/** La tournée ne demande qu'une note. Un jour fixé depuis la fiche est gardé tant qu'il est à venir ; une date passée tombe, la porte venant d'être revue. */
+function tourRp(note) {
+  const o = pass(UI.tour.cur)?.rp, keep = !!o?.date && o.date > isoDay();
+  return { date: keep ? o.date : '', slot: keep ? o.slot || '' : '', note: note || '' };
+}
 function tourLaterForm() {
-  const abs = TD.status === 'absent';
   return `<div class="quick">
-    <div class="lbl">${abs ? 'Personne — programmer une repasse ?' : 'Quand repasser ?'}</div>
-    <div class="chips wrap">${abs ? `<button class="chip" data-act="td-rpdate" data-v="" aria-pressed="${!TD.rpDate}">Pas de repasse</button>` : ''}${dateChoices().map(([v, l]) => `<button class="chip" data-act="td-rpdate" data-v="${v}" aria-pressed="${TD.rpDate === v}">${l}</button>`).join('')}</div>
-    ${TD.rpDate || !abs ? `<div class="chips wrap">${Object.entries(SLOTS).map(([k, l]) => `<button class="chip" data-act="td-slot" data-v="${k}" aria-pressed="${TD.rpSlot === k}">${l}</button>`).join('')}</div><input id="td-rpnote" class="input" placeholder="Note (ex. revenir après 18 h)" value="${esc(TD.rpNote)}" aria-label="Note pour la repasse">` : ''}
-    <div class="grid2"><button class="btn ghost" data-act="td-mode" data-v="">Annuler</button><button class="btn st-btn" data-st="${TD.status}" data-act="td-save-later">Valider · suivante</button></div>
+    <label class="lbl" for="td-rpnote">À repasser · une précision ? (facultatif)</label>
+    <input id="td-rpnote" class="input" placeholder="Ex. revenir après 18 h, sonner derrière" value="${esc(TD.rpNote)}" enterkeyhint="done" aria-label="Note pour la repasse">
+    <div class="grid2"><button class="btn ghost" data-act="td-mode" data-v="">Annuler</button><button class="btn st-btn" data-st="repasse" data-act="td-save-later">Valider · suivante</button></div>
   </div>`;
 }
 function tourSetup() {
@@ -1595,19 +1594,17 @@ function tourSetup() {
 // ═════════════════════════ Repasses
 function renderRep() {
   const el = $('#v-rep'), list = repasses(), today = isoDay();
-  const absNo = units().filter((u) => { if (!visibleAddr(u.a)) return false; const p = pass(u.id); return p?.status === 'absent' && !p.rp?.date; });
+  const nAbs = list.filter((r) => r.p.status === 'absent').length;
   const groups = new Map();
   for (const r of list) { const k = !r.date ? 'none' : r.date < today ? 'late' : r.date; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
   const keys = ['late', ...[...groups.keys()].filter((k) => k !== 'late' && k !== 'none').sort(), 'none'].filter((k) => groups.has(k));
-  const due = (groups.get('late')?.length || 0) + (groups.get(today)?.length || 0);
-  const title = (k) => (k === 'late' ? 'En retard' : k === 'none' ? 'À planifier' : dayLabel(k));
-  const item = (r) => `<div class="rp-item"><span class="rp-slot">${r.slot ? SLOTS[r.slot] : r.date ? 'Journée' : '—'}</span><button class="rp-main" data-act="unit" data-id="${r.u.id}"><b>${esc(unitTitle(r.u))}</b><small>${esc([r.a.com, STATUS[r.p.status].short, r.p.rp?.note, r.date && r.date < today ? dayLabel(r.date) : '', names(r.p.by)].filter(Boolean).join(' · '))}</small></button><div class="rp-quick"><button class="chip" data-act="unit" data-id="${r.u.id}" data-status="done" aria-label="Calendrier donné">${ico('check', 'sm')}</button></div></div>`;
-  const d1 = addDays(today, 1), sat = dateChoices().find((c) => c[1].startsWith('Samedi'));
+  const due = repDue().length;
+  const title = (k) => (k === 'late' ? 'En retard' : k === 'none' ? (keys.length > 1 ? 'Sans date' : 'À repasser') : dayLabel(k));
+  const item = (r) => `<div class="rp-item"><span class="rp-slot"${r.date ? '' : ` style="color:var(--st-${r.p.status});background:color-mix(in srgb,var(--st-${r.p.status}) 12%,transparent)"`}>${r.slot ? SLOTS[r.slot] : r.date ? 'Journée' : STATUS[r.p.status].short}</span><button class="rp-main" data-act="unit" data-id="${r.u.id}"><b>${esc(unitTitle(r.u))}</b><small>${esc([r.a.com, r.date ? STATUS[r.p.status].short : '', r.p.rp?.note, r.date && r.date < today ? dayLabel(r.date) : '', names(r.p.by)].filter(Boolean).join(' · '))}</small></button><div class="rp-quick"><button class="chip" data-act="unit" data-id="${r.u.id}" data-status="done" aria-label="Calendrier donné">${ico('check', 'sm')}</button></div></div>`;
   el.innerHTML = `<div class="view-in">
-    <div class="tour-top"><div><h2 class="display">Repasses</h2><p class="muted" style="margin:6px 0 0">${list.length} programmée${list.length > 1 ? 's' : ''} · ${absNo.length} absent${absNo.length > 1 ? 's' : ''} sans date</p></div>${due ? `<button class="btn red" data-act="route-today">${ico('route')} Itinéraire du jour · ${due}</button>` : ''}</div>
-    ${!list.length && !absNo.length ? '<div class="card empty"><b>Aucune repasse</b>Quand un foyer est absent ou à revoir, programmez la repasse depuis la tournée : elle apparaîtra ici, jour par jour.</div>' : ''}
-    ${keys.map((k) => `<div class="rp-group ${k === 'late' ? 'late' : ''}"><h3>${title(k)} <small>${groups.get(k).length}${k !== 'late' && k !== 'none' && k !== today ? ' · ' + DOWL[new Date(k + 'T12:00:00').getDay()] : ''}</small></h3>${groups.get(k).map(item).join('')}</div>`).join('')}
-    ${absNo.length ? `<div class="rp-group"><h3>Absents sans repasse <small>${absNo.length}</small></h3>${absNo.slice(0, 80).map((u) => { const p = pass(u.id); return `<div class="rp-item"><span class="rp-slot" style="color:var(--st-absent);background:color-mix(in srgb,var(--st-absent) 12%,transparent)">${dayShort(p.at)}</span><button class="rp-main" data-act="unit" data-id="${u.id}"><b>${esc(unitTitle(u))}</b><small>${esc([u.a.com, names(p.by)].filter(Boolean).join(' · '))}</small></button><div class="rp-quick"><button class="chip" data-act="rp-quick" data-id="${u.id}" data-v="${d1}">Demain</button>${sat ? `<button class="chip" data-act="rp-quick" data-id="${u.id}" data-v="${sat[0]}">Sam.</button>` : ''}</div></div>`; }).join('')}</div>` : ''}
+    <div class="tour-top"><div><h2 class="display">Repasses</h2><p class="muted" style="margin:6px 0 0">${pl(list.length, 'porte')} à repasser${nAbs ? ` · dont ${pl(nAbs, 'absent')}` : ''}</p></div>${due ? `<button class="btn red" data-act="route-today">${ico('route')} Itinéraire · ${due}</button>` : ''}</div>
+    ${!list.length ? '<div class="card empty"><b>Aucune repasse</b>Un foyer noté « Absent » ou « À repasser » pendant la tournée apparaît ici.</div>' : ''}
+    ${keys.map((k) => `<div class="rp-group ${k === 'late' ? 'late' : ''}"><h3>${title(k)} <small>${groups.get(k).length}${k !== 'late' && k !== 'none' && k !== today ? ' · ' + DOWL[new Date(k + 'T12:00:00').getDay()] : ''}</small></h3>${groups.get(k).slice(0, 300).map(item).join('')}</div>`).join('')}
   </div>`;
 }
 
@@ -1760,7 +1757,7 @@ function openStreetSheet(sk) {
         <div class="kpi"><b>${pct(r.visited, r.total)} %</b><span>${r.visited} / ${pl(r.total, 'foyer')}</span></div>
         <div class="kpi"><b>${r.st.done}</b><span>donnés</span></div>
         <div class="kpi"><b>${r.st.todo}</b><span>à faire</span></div>
-        <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>absents · repasses</span></div>
+        <div class="kpi"><b>${r.st.absent + r.st.repasse}</b><span>à repasser</span></div>
       </div>
       ${Role.admin ? streetPeople(SS.sk) + `<details class="more" ${adv ? 'open' : ''}><summary>Secteur (avancé)</summary><div><div class="field"><label for="st-zone">Secteur de toute la rue</label>
         <select id="st-zone" class="input" data-change="street-zone" data-sk="${esc(SS.sk)}">
@@ -1808,7 +1805,6 @@ function openUnit(unitId, opts = {}) {
       by: team.length ? team : [...(p?.by || [])],
     },
   };
-  if (AS.d.status === 'repasse' && !AS.d.rp.date && Role.admin) AS.d.rp.date = addDays(isoDay(), 1);
   Sheet.open('addr', () => { MapView.sel = null; MapView.draw(); AS = null; });
   MapView.sel = u.a.id; MapView.draw();
   drawUnitSheet();
@@ -1828,8 +1824,8 @@ function drawUnitSheet() {
   <div class="sheet-body">
     <div class="st-pick">${['done', 'absent', 'repasse', 'refus'].map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
     ${d.status === 'absent' || d.status === 'repasse' ? `
-      <div class="field"><span class="lbl">${d.status === 'absent' ? 'Programmer une repasse (facultatif)' : 'Quand repasser ?'}</span>
-        <div class="chips wrap">${d.status === 'absent' ? `<button class="chip" data-act="as-rpdate" data-v="" aria-pressed="${!d.rp.date}">Pas de repasse</button>` : ''}${dateChoices().map(([v, l]) => `<button class="chip" data-act="as-rpdate" data-v="${v}" aria-pressed="${d.rp.date === v}">${l}</button>`).join('')}<label class="chip date-chip">${ico('cal', 'sm')}<input type="date" data-bind="rp.date" value="${esc(d.rp.date)}" aria-label="Autre date"></label></div>
+      <div class="field"><span class="lbl">Jour de repasse (facultatif)</span>
+        <div class="chips wrap"><button class="chip" data-act="as-rpdate" data-v="" aria-pressed="${!d.rp.date}">Sans date</button>${dateChoices().map(([v, l]) => `<button class="chip" data-act="as-rpdate" data-v="${v}" aria-pressed="${d.rp.date === v}">${l}</button>`).join('')}<label class="chip date-chip">${ico('cal', 'sm')}<input type="date" data-bind="rp.date" value="${esc(d.rp.date)}" aria-label="Autre date"></label></div>
       </div>
       <div class="chips wrap">${Object.entries(SLOTS).map(([k, l]) => `<button class="chip" data-act="as-slot" data-v="${k}" aria-pressed="${d.rp.slot === k}">${l}</button>`).join('')}</div>
       <input class="input" data-bind="rp.note" value="${esc(d.rp.note)}" placeholder="Ex. revenir après 18 h, sonner derrière" aria-label="Consigne pour la repasse">` : ''}
@@ -2727,9 +2723,9 @@ const MapView = {
     document.documentElement.style.setProperty('--lasso-h', bar.offsetHeight + 'px');
   },
   showRoute() {
-    const today = isoDay(), seen = new Set(), pts = [];
-    for (const r of repasses()) if (r.date && r.date <= today && !seen.has(r.a.id)) { seen.add(r.a.id); pts.push(r.a); }
-    if (!pts.length) { toast('Aucune repasse prévue aujourd’hui.'); return; }
+    const seen = new Set(), pts = [];
+    for (const r of repDue()) if (!seen.has(r.a.id)) { seen.add(r.a.id); pts.push(r.a); }
+    if (!pts.length) { toast('Aucune porte à repasser pour l’instant.'); return; }
     let cur = Geo.pos ? [Geo.pos.lat, Geo.pos.lon] : [pts[0].lat, pts[0].lon];
     const left = [...pts], order = [];
     while (left.length) { let bi = 0, bd = Infinity; left.forEach((a, i) => { const d = distM(cur, [a.lat, a.lon]); if (d < bd) { bd = d; bi = i; } }); const a = left.splice(bi, 1)[0]; order.push(a); cur = [a.lat, a.lon]; }
@@ -3091,7 +3087,7 @@ const A = {
   unit: (el) => { const u = unitIdx().get(el.dataset.id); if (u) openUnit(u.id, { status: el.dataset.status, tour: BS?.opts?.tour }); },
   'bld-n': (el) => { const a = BS?.id; if (a) setBld(a, unitsOf(a).length + +el.dataset.v); },
   'as-bld': () => { const u = unitIdx().get(AS.id), tour = AS.opts.tour; Sheet.close(); openBuilding(u.a.id, { tour }); },
-  'as-status': (el) => { AS.d.status = el.dataset.v; if (AS.d.status === 'repasse' && !AS.d.rp.date) AS.d.rp.date = addDays(isoDay(), 1); drawUnitSheet(); },
+  'as-status': (el) => { AS.d.status = el.dataset.v; drawUnitSheet(); },
   'as-rpdate': (el) => { AS.d.rp.date = el.dataset.v; drawUnitSheet(); },
   'as-slot': (el) => { AS.d.rp.slot = AS.d.rp.slot === el.dataset.v ? '' : el.dataset.v; drawUnitSheet(); },
   'as-by': (el) => { const v = el.dataset.v, by = AS.d.by; AS.d.by = by.includes(v) ? by.filter((x) => x !== v) : [...by, v]; drawUnitSheet(); },
@@ -3114,14 +3110,11 @@ const A = {
   'tour-bld': () => { const u = unitIdx().get(UI.tour.cur); if (u) openBuilding(u.a.id, { tour: true }); },
   'tour-order': (el) => { UI.tour.order = el.dataset.v; saveUI(); App.changed(); },
   'td-mode': (el) => { TD.mode = el.dataset.v || null; App.changed(); },
-  'td-later': (el) => { TD.mode = 'later'; TD.status = el.dataset.v; if (TD.status === 'repasse' && !TD.rpDate) TD.rpDate = addDays(isoDay(), 1); App.changed(); },
+  'td-later': () => { TD.mode = 'later'; TD.rpNote = pass(UI.tour.cur)?.rp?.note || ''; App.changed(); },
   'td-refus': () => tourSave('refus'),
-  'td-repasse': () => { const o = pass(UI.tour.cur)?.rp; tourSave('repasse', o ? { rp: { date: o.date && o.date > isoDay() ? o.date : '', slot: o.slot || '', note: o.note || '' } } : {}); },
-  'td-rpdate': (el) => { TD.rpDate = el.dataset.v; App.changed(); },
-  'td-slot': (el) => { TD.rpSlot = TD.rpSlot === el.dataset.v ? '' : el.dataset.v; App.changed(); },
+  'td-absent': () => tourSave('absent', { rp: tourRp(pass(UI.tour.cur)?.rp?.note) }),
   'td-done': () => tourSave('done'),
-  'td-save-later': () => tourSave(TD.status, { rp: TD.rpDate || TD.status === 'repasse' ? { date: TD.rpDate, slot: TD.rpSlot, note: TD.rpNote } : null }),
-  'rp-quick': (el) => quickRp(el.dataset.id, el.dataset.v),
+  'td-save-later': () => tourSave('repasse', { rp: tourRp(TD.rpNote) }),
   member: (el) => { Sheet.close(); Page.open('member', { id: el.dataset.v }); },
   'mem-color': (el) => { const m = member(el.dataset.id); if (m) Store.put('member', m.id, { ...m, color: el.dataset.v }); },
   'mem-remove': (el) => {

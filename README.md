@@ -64,7 +64,7 @@ Pour **déconnecter tous les appareils** (responsables et distributeurs), change
 - **Appartements** : une adresse peut contenir plusieurs logements, chacun avec son statut et ses repasses, et un repère facultatif (ex. « 1er étage gauche »).
 - **Carte des 5 villages incluse dans l'app** (rues, bâtiments, rivières) : chaque adresse est une pastille colorée, découpée en parts pour les immeubles. Filtres par statut, commune et secteur, vue satellite IGN, position GPS. Toucher une rue ouvre sa fiche.
 - **Mode tournée** : grande plaque de numéro, quatre boutons géants, **un seul geste par porte**, puis le foyer suivant s'affiche tout seul (un côté de la rue puis l'autre, logements compris). Mode « autour de moi » au GPS. L'écran reste allumé.
-- **Repasses** : date, créneau et consigne ; agenda jour par jour, retards en rouge, itinéraire du jour sur la carte.
+- **Repasses** : un foyer noté « Absent » ou « À repasser » pendant la tournée rejoint la liste des portes à repasser (une note est possible, rien d'autre n'est demandé) ; le responsable voit le total sur son accueil. Depuis la fiche d'un foyer, il peut fixer un jour et un créneau : agenda jour par jour, retards en rouge, itinéraire sur la carte.
 - **Qui a fait quoi** : chaque passage est attribué à toute l'équipe ; fiche par pompier avec ses rues et ses maisons.
 - **Avancement** : foyers faits et restants, par commune, par secteur, passages des 14 derniers jours, historique.
 - **Recherche d'adresse** : tapez « 12 bâle » dans l'onglet Rues pour tomber directement sur le bon foyer.
