@@ -97,7 +97,7 @@ function clean(kind, id, d) {
   if (kind === 'settings') {
     const admins = {};
     if (d.admins && typeof d.admins === 'object' && !Array.isArray(d.admins)) for (const [k, v] of Object.entries(d.admins).slice(0, 24)) if (isId(k)) admins[k] = nb(v);
-    return { ...d, name: txt(d.name), year: nb(d.year), code: d.code ? txt(d.code) : '', reset: nb(d.reset), admins, adminEpoch: txt(d.adminEpoch).slice(0, 40), u: nb(d.u) };
+    return { ...d, name: txt(d.name), year: nb(d.year), code: d.code ? txt(d.code) : '', reset: nb(d.reset), admins, adminEpoch: txt(d.adminEpoch).slice(0, 40), planVer: txt(d.planVer).slice(0, 20), u: nb(d.u) };
   }
   if (!has(KIND_COL, kind) || !isId(id)) return null;
   const o = { ...d, u: nb(d.u), del: !!d.del };
@@ -220,7 +220,7 @@ const Sync = {
         if (!this.pending || !batch.length) break;
       }
       this.lastOk = Date.now(); this.set('online');
-      adminCheckIn();
+      adminCheckIn(); planAuto();
     } catch (e) {
       if (gen !== this.gen) return;
       const msg = e?.name === 'AbortError' ? 'Le serveur met trop de temps à répondre' : e?.message || String(e);
@@ -859,8 +859,11 @@ function growRegions(items, k) {
 }
 /* ── Le plan de l'amicale (novembre 2026) : pour chaque village, secteur → rues.
    « Rue : 1, 2, 3 » ne prend que ces numéros ; la même rue citée seule dans un autre secteur prend le reste.
-   Pour déplacer une rue, changez-la de ligne puis changez PLAN_VER : le responsable se voit proposer le nouveau plan. */
-const PLAN_VER = '2026-11-10';
+   Pour déplacer une rue : changez-la de ligne, changez PLAN_VER et ajoutez l'empreinte du plan d'avant à PLAN_OLD
+   (dans la console : layoutSig(villageGroups(planKs())), AVANT la modification). Des secteurs restés tels quels depuis
+   un ancien plan passent alors seuls au nouveau ; s'ils ont été retouchés à la main, l'accueil du responsable le propose. */
+const PLAN_VER = '2026-11-11';
+const PLAN_OLD = ['17rdqa9']; // plan du 10 novembre 2026
 const PLAN = {
   'Seppois-le-Bas': {
     '– Rue du Gobenwald': ["Impasse des Merles", "Rue des Écureuils", "Rue des Pinsons", "Rue des Rossignols", "Rue du Gobenwald", "Rue du Réservoir"],
@@ -902,8 +905,8 @@ const PLAN = {
     'sud': ["Impasse des Lilas", "Rue du Ruisseau", "Rue du Stade"],
     'nord': ["Grand'Rue", "Rue de Largitzen", "Rue des Noisetiers", "Rue des Roseaux"],
     // La Grand'Rue, de la rue de Seppois jusqu'au croisement de la rue de Largitzen
-    'est': ["Grand'Rue : 1, 2, 3, 4, 6, 7, 8, 9, 9 bis, 10, 11, 12, 12 a, 12 b, 14, 15, 16, 20", "Impasse de l'Église", "Impasse de la Forêt", "Impasse de la Nature", "Impasse des Hérissons", "Rue de la Carrière", "Rue de Seppois", "Rue Saint-Jean", "Rue Septergass"],
-    'ouest': ["Impasse des Prés", "Route de Delle", "Rue de la Chapelle", "Rue des Étangs", "Rue des Vergers", "Rue du Grunenwald", "Rue du Sundgau"],
+    'est': ["Grand'Rue : 1, 2, 3, 4, 6, 7, 8, 9, 9 bis, 10, 11, 12, 12 a, 12 b, 14, 15, 16, 20", "Impasse de l'Église", "Impasse de la Forêt", "Impasse de la Nature", "Impasse des Hérissons", "Rue de la Carrière", "Rue de Seppois", "Rue Septergass"],
+    'ouest': ["Impasse des Prés", "Route de Delle", "Rue de la Chapelle", "Rue des Étangs", "Rue des Vergers", "Rue du Grunenwald", "Rue du Sundgau", "Rue Saint-Jean"],
   },
 };
 const planK = (com) => (PLAN[com] ? Object.keys(PLAN[com]).length : 0);
@@ -935,7 +938,25 @@ const planDiffers = () => memo('plandiff', () => {
   const zs = zones(), want = villageGroups(planKs()), byName = new Map(zs.map((z) => [z.name, z]));
   return zs.length !== want.length || want.some((g) => { const z = byName.get(g.name); if (!z || z.addrs.length !== g.ids.length) return true; const has = new Set(z.addrs); return g.ids.some((id) => !has.has(id)); });
 });
-const planOffer = () => Role.admin && !Store.demoOn && UI.planSeen !== PLAN_VER && zones().length > 0 && planDiffers();
+/** Empreinte courte d'une répartition (noms des secteurs et adresses), la même sur tous les appareils. */
+const fnv = (str) => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+const layoutSig = (list) => fnv(list.map((g) => g.name + ':' + [...g.ids].sort().join(',')).sort().join('|'));
+const zonesSig = () => memo('zsig', () => layoutSig(zones().map((z) => ({ name: z.name, ids: z.addrs || [] }))));
+/** L'équipe a déjà traité cette version du plan (appliquée, ou refusée) : noté dans les réglages partagés, donc vrai sur tous les appareils.
+ *  Ensuite plus rien n'est ni appliqué ni proposé : les retouches à la main du responsable restent. */
+const planDone = () => (Store.s.settings || {}).planVer === PLAN_VER;
+const planMark = () => { if (!planDone()) Store.put('settings', 'main', { ...Store.s.settings, planVer: PLAN_VER }); };
+/** Après une synchro réussie chez le responsable : des secteurs encore identiques à un ancien plan prennent le nouveau, une seule fois, sans rien demander. */
+function planAuto() {
+  if (!Role.admin || Store.demoOn || planDone() || !zones().length) return;
+  if (!planDiffers()) { planMark(); return; }
+  if (!PLAN_OLD.includes(zonesSig())) return; // retouchés à la main : la carte d'accueil propose, rien n'est imposé
+  const list = villageGroups(planKs());
+  replaceZonesNamed(list); planMark(); App.changed();
+  toast(`Secteurs mis à jour avec le nouveau plan · ${pl(list.length, 'secteur')}.`, { ms: 7000 });
+}
+/** La carte d'accueil ne propose le plan qu'à une équipe déjà passée par un plan précédent et qui l'a retouché depuis. */
+const planOffer = () => { const v = (Store.s.settings || {}).planVer; return Role.admin && !Store.demoOn && !!v && v !== PLAN_VER && zones().length > 0 && planDiffers() && !(Sync.timer && PLAN_OLD.includes(zonesSig())); };
 /** La plus grande rue d'un groupe d'adresses : elle nomme les secteurs en plus des huit orientations. */
 const mainStreet = (ids) => { const m = new Map(), idx = addrIdx(); for (const id of ids) { const st = idx.get(id)?.street; if (st) m.set(st, (m.get(st) || 0) + unitsOf(id).length); } return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fr'))[0]?.[0] || ''; };
 function planCard() {
@@ -943,10 +964,10 @@ function planCard() {
   const k = planKs();
   return `<section class="card plan-card">
       <div class="card-h"><h2>Plan des secteurs corrigé</h2><span class="muted">${pl(sum(Object.values(k)), 'secteur')}</span></div>
-      <p class="muted" style="margin:0 0 12px">${COMMUNES.map((c) => `${esc(c)} ${k[c]}`).join(' · ')}. Les rues ont été replacées comme demandé et chaque secteur porte un nom unique. Un secteur qui garde son nom garde son code et son équipe.</p>
+      <p class="muted" style="margin:0 0 12px">${COMMUNES.map((c) => `${esc(c)} ${k[c]}`).join(' · ')}. Vos secteurs ont été retouchés à la main depuis le plan précédent : appliquer le nouveau plan remplace ces retouches. Un secteur qui garde son nom garde son code et son équipe.</p>
       <div class="grid2">
         <button class="btn block" data-act="plan-apply">${ico('sparkle')} Appliquer le plan</button>
-        <button class="btn ghost block" data-act="plan-skip">Plus tard</button>
+        <button class="btn ghost block" data-act="plan-skip">Garder mes secteurs</button>
       </div>
     </section>`;
 }
@@ -999,9 +1020,12 @@ function replaceZonesNamed(list) {
   const olds = [...zones()], byName = new Map(), kept = new Set();
   for (const z of olds) if (!byName.has(z.name)) byName.set(z.name, z);
   list.forEach((g, i) => {
-    const z = byName.get(g.name); if (z) kept.add(z.id);
-    const id = z ? z.id : uid('z');
-    Store.put('zone', id, { id, name: g.name, code: (z && z.code) || newZoneCode(), color: ZONE_COLORS[i % ZONE_COLORS.length], addrs: g.ids, members: z ? z.members || [] : [], order: i });
+    // Un nouveau nom reçoit un identifiant tiré de ce nom : deux appareils qui appliquent le même plan ne créent pas de doublon
+    const z = byName.get(g.name), id = z ? z.id : 'zp' + fnv(g.name);
+    kept.add(id);
+    const color = ZONE_COLORS[i % ZONE_COLORS.length];
+    if (z && z.code && z.order === i && z.color === color && (z.addrs || []).length === g.ids.length && g.ids.every((a, k) => a === z.addrs[k])) return; // rien n'a bougé : on ne réécrit pas (l'équipe notée entre-temps sur un autre appareil est préservée)
+    Store.put('zone', id, { id, name: g.name, code: (z && z.code) || newZoneCode(), color, addrs: g.ids, members: z ? z.members || [] : [], order: i });
   });
   for (const z of olds) if (!kept.has(z.id)) Store.put('zone', z.id, { ...z, del: true });
 }
@@ -3240,15 +3264,15 @@ const A = {
   'plan-apply': () => {
     if (!Role.admin || Store.demoOn) return;
     const before = zones().map((z) => ({ ...z })), list = villageGroups(planKs());
-    replaceZonesNamed(list); UI.planSeen = PLAN_VER; saveUI(); App.changed();
+    replaceZonesNamed(list); planMark(); App.changed();
     toast(`Plan appliqué : ${pl(list.length, 'secteur')}. Réimprimez les billets des secteurs qui ont changé de nom.`, { ms: 9000, undo: () => {
       const back = new Set(before.map((z) => z.id));
       for (const z of zones()) if (!back.has(z.id)) Store.put('zone', z.id, { ...z, del: true });
       for (const z of before) Store.put('zone', z.id, z);
-      UI.planSeen = ''; saveUI(); App.changed(); toast('Les secteurs d’avant sont revenus.');
+      App.changed(); toast('Les secteurs d’avant sont revenus. Le plan reste disponible dans « Répartition automatique ».', { ms: 6000 });
     } });
   },
-  'plan-skip': () => { UI.planSeen = PLAN_VER; saveUI(); App.changed(); toast('D’accord. Le plan reste disponible dans « Répartition automatique ».', { ms: 5000 }); },
+  'plan-skip': () => { if (!Role.admin || Store.demoOn) return; planMark(); App.changed(); toast('D’accord. Le plan reste disponible dans « Répartition automatique ».', { ms: 5000 }); },
   'unassigned-map': () => { UI.zone = '__none'; UI.filter = 'all'; UI.mapMode = 'map'; saveUI(); Page.close(); go('map'); },
   'unassigned-new': () => { ZE = newZE(); unassigned().forEach((a) => ZE.addrs.add(a.id)); ZE.only = true; Page.open('zone'); },
   'export-csv': () => exportCSV(),
