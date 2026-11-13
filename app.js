@@ -1483,7 +1483,13 @@ function tourNext(dir = 1) {
   }
   TD = freshTD(T.cur); saveUI();
 }
-const tourScrollTop = () => requestAnimationFrame(() => { const v = $('#v-tour'), card = $('.door-card', v); if (card && card.getBoundingClientRect().top < v.getBoundingClientRect().top) v.scrollTo({ top: Math.max(0, card.offsetTop - 120), behavior: 'smooth' }); });
+/** Garde la porte et ses quatre boutons à l'écran : sur un petit téléphone ils tombaient sous le bord, il fallait faire défiler à chaque maison. */
+const tourScrollTop = () => requestAnimationFrame(() => {
+  const v = $('#v-tour'), card = $('.door-card', v); if (!card) return;
+  const vr = v.getBoundingClientRect(), cr = card.getBoundingClientRect();
+  if (cr.top < vr.top) v.scrollTo({ top: Math.max(0, card.offsetTop - 120), behavior: 'smooth' });
+  else if (cr.bottom > vr.bottom - 8) v.scrollTo({ top: v.scrollTop + Math.min(cr.top - vr.top - 8, cr.bottom - vr.bottom + 12), behavior: 'smooth' });
+});
 function tourSave(status) {
   const id = UI.tour.cur; if (!id) return;
   const p = pass(id), u = unitIdx().get(id), team = Me.team();
@@ -3129,7 +3135,7 @@ const A = {
     const t = streetTeamOf(st), id = el.dataset.v, cur = t.shared ? [] : t.members;
     assignStreetToPeople(sk, cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]); vibrate(10);
   },
-  'tour-start': (el) => { UI.tour = { ...UI.tour, street: el.dataset.v, near: false, cur: null }; TD = freshTD(null); saveUI(); if (Page.cur) Page.close(); Sheet.close(); go('tour'); },
+  'tour-start': (el) => { UI.tour = { ...UI.tour, street: el.dataset.v, near: false, cur: null }; TD = freshTD(null); saveUI(); if (Page.cur) Page.close(); Sheet.close(); go('tour'); setTimeout(tourScrollTop, 350); },
   'tour-near': () => { UI.tour = { ...UI.tour, near: true, street: null, cur: null }; saveUI(); Geo.start(); App.changed(); },
   'tour-pick': () => { UI.tour = { ...UI.tour, street: null, near: false, cur: null }; saveUI(); App.changed(); $('#v-tour').scrollTop = 0; },
   'tour-go': (el) => { el.closest?.('details')?.removeAttribute('open'); UI.tour.cur = el.dataset.id; TD = { ...freshTD(el.dataset.id), pick: true }; saveUI(); App.changed(); tourScrollTop(); },

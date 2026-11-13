@@ -638,8 +638,9 @@ select.input.sm { padding-right: 30px; }
 }
 @media (max-width: 340px) {
   .tabs > button span { font-size: 10.5px; }
-  .acts { grid-template-columns: 1fr 1fr; }
-  .act.big { grid-column: 1 / -1; }
+  .acts { gap: 6px; }
+  .act { font-size: 12.5px; padding: 6px 2px; }
+  .act .ico { width: 22px; height: 22px; }
   .hero-amt { font-size: 50px; }
 }
 
