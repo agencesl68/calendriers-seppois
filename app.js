@@ -1355,7 +1355,7 @@ function renderMapView() {
   if (UI.mapMode === 'streets') renderStreets();
   else {
     const live = Sync.code ? '<span id="map-live"></span>' : '';
-    $('#map-legend').innerHTML = keys.map((k) => `<div><span class="dot" data-st="${k}"></span>${STATUS[k].short}<b>${c[k]}</b></div>`).join('')
+    $('#map-legend').innerHTML = `<div class="ml-rues"><span><i class="ml-line done"></i>rue faite</span><span><i class="ml-line rep"></i>à repasser</span></div>` + keys.map((k) => `<div><span class="dot" data-st="${k}"></span>${STATUS[k].short}<b>${c[k]}</b></div>`).join('')
       + `<div class="legend-foot">${Role.admin ? `Touchez une rue pour l’attribuer${live}` : `<span class="zdot" style="--c:var(--red)"></span> Vos rues${live}`}</div>`;
     liveLine();
     $('#map-legend').hidden = !!MapView.lasso || (!Role.admin && !tot);
@@ -2810,16 +2810,24 @@ const MapView = {
       const o = off.getContext('2d'), idx = addrIdx(), rad = clamp(24 / mpp, 4, 16); // la teinte du secteur reste une tache douce, pas un gros pâté
       o.setTransform(this._dpr, 0, 0, this._dpr, 0, 0); o.clearRect(0, 0, W, H);
       for (const zn of zs) { o.fillStyle = Role.admin || L0 ? zn.color : c.red; o.beginPath(); for (const id of zn.addrs || []) { const a = idx.get(id); if (!a) continue; const p = P(a.lat, a.lon); if (!inView(p, rad)) continue; o.moveTo(p.x + rad, p.y); o.arc(p.x, p.y, rad, 0, Math.PI * 2); } o.fill(); }
-      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = sat ? 0.3 : 0.2; ctx.drawImage(off, 0, 0); ctx.restore();
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = sat ? 0.24 : 0.15; ctx.drawImage(off, 0, 0); ctx.restore();
     }
-    // Distributeur : ses rues tracées dans la couleur de son secteur
-    if (!Role.admin && !L0) {
+    // Avancement rue par rue : la rue verdit au fur et à mesure, et garde un trait rouge tant qu'il faut y repasser.
+    // Les pastilles sont trop petites à l'échelle d'un village : c'est le tracé des rues qui se lit de loin.
+    if (!L0) {
+      const SS = stats(), trace = (e) => { for (const line of e.lines) { ctx.beginPath(); line.forEach((ll, i) => { const q = P(ll[0], ll[1]); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }); ctx.stroke(); } };
+      const lw = clamp(11 * Math.pow(2, z - 17), 6, 26);
       ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.lineWidth = clamp(9 * Math.pow(2, z - 17), 4, 24); ctx.globalAlpha = sat ? 0.6 : 0.4;
       for (const st of visStreets()) {
         const e = streetRoads().get(st.sk); if (!e) continue;
-        ctx.strokeStyle = c.red;
-        for (const line of e.lines) { ctx.beginPath(); line.forEach((ll, i) => { const q = P(ll[0], ll[1]); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }); ctx.stroke(); }
+        const g = SS.byStreet.get(st.sk); if (!g || !g.total) continue;
+        const fini = (g.st.done + g.st.refus + g.st.vide) / g.total, revoir = (g.st.absent + g.st.repasse) / g.total;
+        if (!fini && !revoir) { // rue pas commencée : rouge pour le distributeur (ce sont ses rues), rien pour le responsable
+          if (Role.admin) continue;
+          ctx.lineWidth = lw; ctx.globalAlpha = sat ? 0.55 : 0.34; ctx.strokeStyle = c.red; trace(e); continue;
+        }
+        ctx.lineWidth = lw; ctx.globalAlpha = (sat ? 0.34 : 0.26) + 0.6 * fini; ctx.strokeStyle = c.st.done; trace(e);
+        if (revoir) { ctx.lineWidth = Math.max(2.6, lw * 0.4); ctx.globalAlpha = sat ? 0.9 : 0.78; ctx.strokeStyle = c.st.repasse; trace(e); }
       }
       ctx.restore();
     }
@@ -2865,7 +2873,7 @@ const MapView = {
       const lw = Math.max(1.6, r * 0.3);
       for (const [, p, st, cnt, n] of hits) {
         ctx.strokeStyle = ring;
-        if (!cnt) { ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fillStyle = c.st[st]; ctx.fill(); ctx.lineWidth = lw; ctx.stroke(); continue; }
+        if (!cnt) { const rr = st === 'todo' ? r * 0.8 : r * 1.14; ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI * 2); ctx.fillStyle = c.st[st]; ctx.fill(); ctx.lineWidth = lw; ctx.stroke(); continue; }
         const R = r + 1.5; let a0 = -Math.PI / 2;
         for (const k of ST_ORDER) { if (!cnt[k]) continue; const a1 = a0 + (cnt[k] / n) * Math.PI * 2; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.arc(p.x, p.y, R, a0, a1); ctx.closePath(); ctx.fillStyle = c.st[k]; ctx.fill(); a0 = a1; }
         ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, Math.PI * 2); ctx.lineWidth = Math.max(2.2, r * 0.3); ctx.stroke();

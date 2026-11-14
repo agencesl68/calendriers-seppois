@@ -329,6 +329,11 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .fab-btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
 .map-legend { position: absolute; left: 10px; bottom: 24px; z-index: 600; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: 12px; padding: 8px 11px; font: 600 12.5px var(--f-body); display: grid; gap: 5px; box-shadow: var(--shadow); }
 .map-legend div { display: flex; align-items: center; gap: 7px; }
+.map-legend .ml-rues { gap: 10px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); color: var(--ink-2); }
+.map-legend .ml-rues span { display: inline-flex; align-items: center; gap: 5px; }
+.map-legend .ml-line { width: 15px; height: 4px; border-radius: 2px; }
+.map-legend .ml-line.done { background: var(--st-done); }
+.map-legend .ml-line.rep { background: var(--st-repasse); }
 .map-legend b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
 .draw-bar { position: absolute; left: 12px; right: 68px; top: 12px; z-index: 650; background: var(--ink); color: var(--surface); border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; box-shadow: var(--shadow); }
 .draw-bar p { margin: 0; font-weight: 600; font-size: 14px; }
