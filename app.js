@@ -69,11 +69,12 @@ const STATUS = {
   absent: { label: 'Absent', short: 'Absent', icon: 'absent' },
   repasse: { label: 'À repasser', short: 'Repasse', icon: 'repeat' },
   refus: { label: 'Refus', short: 'Refus', icon: 'ban' },
+  vide: { label: 'Maison inhabitée', short: 'Inhabitée', icon: 'vacant' },
 };
-const ST_ORDER = ['done', 'absent', 'repasse', 'refus', 'todo'];
-const ST_FILTER = ['todo', 'done', 'absent', 'repasse', 'refus'];
-const OPEN = new Set(['todo', 'absent', 'repasse']);
-const blankSt = () => ({ todo: 0, done: 0, absent: 0, repasse: 0, refus: 0 });
+const ST_ORDER = ['done', 'absent', 'repasse', 'refus', 'vide', 'todo'];
+const ST_FILTER = ['todo', 'done', 'absent', 'repasse', 'refus', 'vide'];
+const OPEN = new Set(['todo', 'absent', 'repasse']); // une maison inhabitée est réglée : on n'y repasse pas
+const blankSt = () => ({ todo: 0, done: 0, absent: 0, repasse: 0, refus: 0, vide: 0 });
 const SLOTS = { matin: 'Matin', midi: 'Midi', aprem: 'Après-midi', soir: 'Soir' };
 const SLOT_SHORT = { matin: 'Matin', midi: 'Midi', aprem: 'Aprèm', soir: 'Soir' };
 const PALETTE = ['#2F6FE4', '#7C3AED', '#0D9488', '#DB2777', '#CA8A04', '#4F46E5', '#EA580C', '#0891B2', '#65A30D', '#9333EA', '#BE123C', '#475569'];
@@ -867,8 +868,8 @@ function growRegions(items, k) {
    Pour déplacer une rue : changez-la de ligne, changez PLAN_VER et ajoutez l'empreinte du plan d'avant à PLAN_OLD
    (dans la console : layoutSig(villageGroups(planKs())), AVANT la modification). Des secteurs restés tels quels depuis
    un ancien plan passent alors seuls au nouveau ; s'ils ont été retouchés à la main, l'accueil du responsable le propose. */
-const PLAN_VER = '2026-11-11';
-const PLAN_OLD = ['17rdqa9']; // plan du 10 novembre 2026
+const PLAN_VER = '2026-11-14';
+const PLAN_OLD = ['17rdqa9', '1d18wc3']; // plans du 10 et du 11 novembre 2026
 const PLAN = {
   'Seppois-le-Bas': {
     '– Rue du Gobenwald': ["Impasse des Merles", "Rue des Écureuils", "Rue des Pinsons", "Rue des Rossignols", "Rue du Gobenwald", "Rue du Réservoir"],
@@ -896,15 +897,12 @@ const PLAN = {
   },
   'Pfetterhouse': {
     'sud-ouest': ["Rue de la Suisse", "Rue des Abeilles", "Rue des Cerisiers"],
-    'sud-est': ["Rue de la Chapelle", "Rue des Pins", "Rue du Réservoir"],
-    'nord-est': ["Rue de Moos"],
-    'est': ["Impasse des Écoles", "Rue de la Montagne", "Rue du Sundgau"],
-    'nord-ouest': ["Rue de la Laiterie", "Rue de Seppois", "Rue des Étangs", "Rue des Jardins", "Rue des Vergers", "Rue Joseph Meister"],
-    'ouest': ["Rue de la Libération", "Rue de Réchésy", "Rue du Steinengweg"],
-    'sud': ["Rue de Gerschwiller", "Rue de la Tuilerie", "Rue du Chêne", "Rue du Vallon"],
-    'nord': ["Place Saint-Géréon", "Rue de Courtavon", "Rue du Rosers"],
-    '– Rue des Lupins': ["Chemin du Grossfeldweg", "Route de Mooslargue", "Rue de la Forêt", "Rue des Lupins", "Rue des Prés"],
-    '– Rue de la Gare': ["Rue de la Gare", "Rue du Chemin de Fer"],
+    'nord-est': ["Rue de Moos", "Rue des Lupins", "Rue des Prés", "Route de Mooslargue", "Chemin du Grossfeldweg"],
+    'est': ["Impasse des Écoles", "Rue de la Montagne", "Rue du Sundgau", "Rue de la Chapelle", "Rue des Pins", "Rue du Réservoir"],
+    'nord-ouest': ["Rue de la Laiterie", "Rue de Seppois", "Rue des Étangs", "Rue des Jardins", "Rue des Vergers", "Rue Joseph Meister", "Rue du Steinengweg"],
+    'ouest': ["Rue de la Libération", "Rue de Réchésy"],
+    'sud': ["Rue de Gerschwiller", "Rue de la Tuilerie", "Rue du Chêne", "Rue du Vallon", "Rue de Courtavon", "Rue du Rosers"],
+    '– Rue de la Gare': ["Rue de la Gare", "Rue du Chemin de Fer", "Rue de la Forêt", "Place Saint-Géréon"],
   },
   'Ueberstrass': {
     'sud': ["Impasse des Lilas", "Rue du Ruisseau", "Rue du Stade"],
@@ -1194,6 +1192,7 @@ function renderHeader() {
   const tTab = $('.tabs > button[data-v="team"] span');
   if (tTab) tTab.textContent = Role.admin ? 'Répartition' : 'Mon équipe';
   $$('.tabs > button[data-v="home"], .tabs > button[data-v="team"]').forEach((b) => (b.hidden = !Role.admin));
+  const rf = $('.tabs > button[data-v="renfort"]'); if (rf) rf.hidden = Role.admin; // le responsable a déjà la page des codes
 }
 
 // ═════════════════════════ Accueil
@@ -1574,6 +1573,7 @@ function tourActs() {
     <button class="act" data-st="absent" data-act="td-absent">${ico('absent')}Absent</button>
     <button class="act" data-st="repasse" data-act="td-repasse">${ico('repeat')}À repasser</button>
     <button class="act" data-st="refus" data-act="td-refus">${ico('ban')}Refus</button>
+    <button class="act wide" data-st="vide" data-act="td-vide">${ico('vacant')} Maison inhabitée</button>
   </div>`;
 }
 
@@ -1834,7 +1834,7 @@ function drawUnitSheet() {
     <button class="icon-btn" data-act="sheet-close" aria-label="Fermer">${ico('x')}</button>
   </header>
   <div class="sheet-body">
-    <div class="st-pick">${['done', 'absent', 'repasse', 'refus'].map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
+    <div class="st-pick">${['done', 'absent', 'repasse', 'refus', 'vide'].map((k) => `<button class="st-opt" data-st="${k}" data-act="as-status" data-v="${k}" aria-pressed="${d.status === k}">${ico(STATUS[k].icon)}<span>${STATUS[k].label}</span></button>`).join('')}</div>
     ${d.status === 'absent' || d.status === 'repasse' ? `${Role.admin ? `
       <div class="field"><span class="lbl">Jour de repasse (facultatif)</span>
         <div class="chips wrap"><button class="chip" data-act="as-rpdate" data-v="" aria-pressed="${!d.rp.date}">Sans date</button>${dateChoices().map(([v, l]) => `<button class="chip" data-act="as-rpdate" data-v="${v}" aria-pressed="${d.rp.date === v}">${l}</button>`).join('')}<label class="chip date-chip">${ico('cal', 'sm')}<input type="date" data-bind="rp.date" value="${esc(d.rp.date)}" aria-label="Autre date"></label></div>
@@ -2330,6 +2330,25 @@ PAGES.codes = () => {
     </div>`,
   };
 };
+/** Le QR code de son propre secteur : une personne qui a fini le scanne et bascule sur ce secteur. */
+PAGES.renfort = () => {
+  const z = Sector.zone;
+  if (!z) return { title: 'Renfort', body: '<div class="card empty"><b>Aucun secteur sur ce téléphone</b><span>Scannez le QR code de votre secteur pour commencer la tournée.</span></div>' };
+  const g = stats().byZone[z.id] || { total: 0, visited: 0 }, n = zonesStreets([z]).length;
+  return {
+    title: 'Renfort',
+    body: `<div class="stackv">
+      <div class="note-box">Quelqu'un vient vous aider ? <b>Faites-lui scanner ce QR code</b> avec l'appareil photo de son téléphone : il arrive directement sur votre secteur, avec vos rues.</div>
+      <section class="card renfort-card">
+        <b class="rf-name">${esc(z.name)}</b>
+        <span class="muted">${pl(n, 'rue')} · ${nf(g.visited)}/${nf(g.total)} foyers faits</span>
+        <div class="qr rf-qr">${qrSvg(joinLink(z.code))}</div>
+        ${z.code ? `<div><span class="lbl">Ou à saisir dans l'app</span><div class="code-box">${esc(z.code)}</div></div>` : ''}
+        <p class="muted" style="margin:0;font-size:13.5px">Ce qu'il a déjà noté sur son secteur reste enregistré.</p>
+      </section>
+    </div>`,
+  };
+};
 PAGES.unassigned = () => {
   const miss = unassigned(), by = new Map();
   for (const a of miss) { if (!by.has(a.sk)) by.set(a.sk, []); by.get(a.sk).push(a); }
@@ -2480,7 +2499,7 @@ const MapView = {
   },
   col() {
     const cs = getComputedStyle(document.documentElement), g = (n) => cs.getPropertyValue(n).trim();
-    this._c = { bld: g('--map-bld'), bldl: g('--map-bld-line'), road: g('--map-road'), cs: g('--map-case'), main: g('--map-main'), mainc: g('--map-main-case'), water: g('--map-water'), green: g('--map-green'), wood: g('--map-wood'), label: g('--map-label'), halo: g('--map-halo'), surface: g('--surface'), ink: g('--ink'), red: g('--red'), st: { todo: g('--st-todo'), done: g('--st-done'), absent: g('--st-absent'), repasse: g('--st-repasse'), refus: g('--st-refus') } };
+    this._c = { bld: g('--map-bld'), bldl: g('--map-bld-line'), road: g('--map-road'), cs: g('--map-case'), main: g('--map-main'), mainc: g('--map-main-case'), water: g('--map-water'), green: g('--map-green'), wood: g('--map-wood'), label: g('--map-label'), halo: g('--map-halo'), surface: g('--surface'), ink: g('--ink'), red: g('--red'), st: { todo: g('--st-todo'), done: g('--st-done'), absent: g('--st-absent'), repasse: g('--st-repasse'), refus: g('--st-refus'), vide: g('--st-vide') } };
     return this._c;
   },
   buildVector() {
@@ -2909,7 +2928,7 @@ const MapView = {
       for (const zn of zs) {
         const ctr = zoneCenter(zn); if (!ctr) continue;
         const p = P(ctr[0], ctr[1]); if (!inView(p, 80)) continue;
-        const bz = S.byZone[zn.id], label = `${zn.name} · ${bz ? pct(bz.visited, bz.total) : 0} %`, w = ctx.measureText(label).width + 20;
+        const bz = S.byZone[zn.id], label = `${zn.name} · ${bz ? bz.visited : 0}/${bz ? bz.total : 0}`, w = ctx.measureText(label).width + 20;
         rrect(ctx, p.x - w / 2, p.y - 12, w, 24, 12); ctx.fillStyle = zn.color; ctx.globalAlpha = 0.94; ctx.fill(); ctx.globalAlpha = 1;
         ctx.fillStyle = '#fff'; ctx.fillText(label, p.x, p.y + 0.5);
       }
@@ -3147,6 +3166,7 @@ const A = {
   'td-note': () => { TD.mode = 'note'; TD.rpNote = pass(UI.tour.cur)?.rp?.note || ''; renderTour(); $('#td-rpnote')?.focus(); },
   'td-refus': () => tourSave('refus'),
   'td-absent': () => tourSave('absent'),
+  'td-vide': () => tourSave('vide'),
   'td-repasse': () => tourSave('repasse'),
   'td-done': () => tourSave('done'),
   member: (el) => { Sheet.close(); Page.open('member', { id: el.dataset.v }); },

@@ -32,6 +32,7 @@
   --st-absent: #DD8300;
   --st-repasse: #D22B3D;
   --st-refus: #3F4652;
+  --st-vide: #7A6E94;
   --danger: #D22B3D;
 
   --map-bg: #EDEFEA;
@@ -60,7 +61,7 @@
     --bg: #0F1114; --surface: #181B1F; --surface-2: #20242A; --ink: #EDEFF2; --ink-2: #B5BBC4; --muted: #868D97; --line: #2B3038;
     --primary: #F2CA0C; --on-primary: #15171A; --focus: #6C9BF5; --scrim: rgb(0 0 0 / .6);
     --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .35);
-    --st-todo: #6E7680; --st-done: #2DBA6E; --st-absent: #F2A223; --st-repasse: #EF4A5C; --st-refus: #A3AAB5; --danger: #EF4A5C;
+    --st-todo: #6E7680; --st-done: #2DBA6E; --st-absent: #F2A223; --st-repasse: #EF4A5C; --st-refus: #A3AAB5; --st-vide: #A79AD0; --danger: #EF4A5C;
     --map-bg: #14171B; --map-bld: #2A2E35; --map-bld-line: #363B43; --map-road: #3A3F48; --map-case: #23272D;
     --map-main: #5B5232; --map-main-case: #3B3521; --map-water: #1D3A54; --map-green: #1A251C; --map-wood: #1E2D1F;
     --map-label: #CDD2D9; --map-halo: #14171B;
@@ -73,7 +74,7 @@
   --bg: #0F1114; --surface: #181B1F; --surface-2: #20242A; --ink: #EDEFF2; --ink-2: #B5BBC4; --muted: #868D97; --line: #2B3038;
   --primary: #F2CA0C; --on-primary: #15171A; --focus: #6C9BF5; --scrim: rgb(0 0 0 / .6);
   --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .35);
-  --st-todo: #6E7680; --st-done: #2DBA6E; --st-absent: #F2A223; --st-repasse: #EF4A5C; --st-refus: #A3AAB5; --danger: #EF4A5C;
+  --st-todo: #6E7680; --st-done: #2DBA6E; --st-absent: #F2A223; --st-repasse: #EF4A5C; --st-refus: #A3AAB5; --st-vide: #A79AD0; --danger: #EF4A5C;
   --map-bg: #14171B; --map-bld: #2A2E35; --map-bld-line: #363B43; --map-road: #3A3F48; --map-case: #23272D;
   --map-main: #5B5232; --map-main-case: #3B3521; --map-water: #1D3A54; --map-green: #1A251C; --map-wood: #1E2D1F;
   --map-label: #CDD2D9; --map-halo: #14171B;
@@ -191,6 +192,7 @@ main { flex: 1; min-height: 0; position: relative; }
 [data-st="absent"] { --st: var(--st-absent); }
 [data-st="repasse"] { --st: var(--st-repasse); }
 [data-st="refus"] { --st: var(--st-refus); }
+[data-st="vide"] { --st: var(--st-vide); }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--st); flex: none; }
 .st-pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; background: color-mix(in srgb, var(--st) 15%, transparent); color: var(--st); font: 700 12px/1 var(--f-body); white-space: nowrap; }
 .st-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--st); }
@@ -373,6 +375,8 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .act .ico { width: 26px; height: 26px; stroke-width: 2.2; }
 .act.big { grid-column: 1 / -1; min-height: 78px; flex-direction: row; font: 800 24px/1 var(--f-display); text-transform: uppercase; letter-spacing: .03em; gap: 12px; }
 .act.big .ico { width: 30px; height: 30px; }
+.act.wide { grid-column: 1 / -1; flex-direction: row; gap: 10px; min-height: 46px; font-size: 14.5px; }
+.act.wide .ico { width: 22px; height: 22px; }
 .act:active { transform: scale(.98); }
 .quick { display: grid; gap: 14px; }
 .quick .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
@@ -453,6 +457,10 @@ details.more > div { display: grid; gap: 12px; margin-top: 12px; }
 .set-row .t small { color: var(--muted); font-size: 13px; }
 .code-box { font: 800 30px/1 var(--f-display); letter-spacing: .08em; padding: 14px; border-radius: 12px; background: var(--surface-2); border: 1px dashed var(--line); text-align: center; user-select: all; }
 .qr { background: #fff; border-radius: 14px; padding: 12px; width: min(240px, 100%); margin: 0 auto; }
+.renfort-card { display: grid; gap: 12px; justify-items: center; text-align: center; }
+.renfort-card .rf-name { font: 800 23px/1.05 var(--f-display); text-transform: uppercase; letter-spacing: .03em; }
+.renfort-card .lbl { display: block; margin-bottom: 6px; }
+.rf-qr { width: min(320px, 100%); padding: 14px; }
 .qr svg, .qr img { display: block; width: 100%; height: auto; }
 .note-box { background: var(--surface-2); border-radius: 12px; padding: 12px 14px; font-size: 14px; color: var(--ink-2); }
 .note-box code { font-size: 13px; background: var(--surface); padding: 1px 5px; border-radius: 4px; }
@@ -708,6 +716,7 @@ select.input.sm { padding-right: 30px; }
   .door-meta p { font-size: 13px; }
   .act { min-height: 60px; }
   .act.big { min-height: 66px; }
+  .act.wide { min-height: 42px; font-size: 13.5px; }
   .view-in { padding-block: 14px 28px; }
 }
 

@@ -8,7 +8,7 @@ Application web de l'**Amicale des Sapeurs-Pompiers de Seppois-le-Bas** pour org
 | --- | --- | --- |
 | Pour qui | Ceux qui répartissent les rues | Tous ceux qui font les portes |
 | Comment | Code d'accès responsable | Un seul code : celui du billet |
-| Ce qu'il fait | Voit toute la carte en direct, prépare les secteurs, imprime les billets | Voit seulement les rues de son secteur (en rouge) et note à chaque porte : calendrier donné, absent, à repasser ou refus |
+| Ce qu'il fait | Voit toute la carte en direct, prépare les secteurs, imprime les billets | Voit seulement les rues de son secteur (en rouge) et note à chaque porte : calendrier donné, absent, à repasser, refus ou maison inhabitée |
 
 Ouvrir le lien amène toujours sur l'**écran de démarrage** : blason, choix de l'accès, et un bouton **Continuer** quand le téléphone est déjà réglé.
 
@@ -60,7 +60,7 @@ Pour **déconnecter tous les appareils** (responsables et distributeurs), change
 - **Un code à 4 chiffres par secteur** : l'équipe le saisit une fois et ne voit plus que ses rues. Billets à imprimer (code + QR code + liste des rues) dans **Codes à distribuer**.
 - **Liste des pompiers** : chacun se déclare depuis son téléphone après avoir saisi le code de son secteur, et le responsable le voit arriver en face du secteur. Ajout à la main toujours possible (copier-coller, un prénom par ligne) ; les passages déjà faits restent dans l'historique.
 - **Équipes de 2 ou 3** : chaque secteur est confié à une équipe ; chacun voit « Mes rues » et ce qu'il y reste à faire.
-- **Statut par foyer** : à faire, calendrier donné, absent, à repasser, refus.
+- **Statut par foyer** : à faire, calendrier donné, absent, à repasser, refus, maison inhabitée.
 - **Appartements** : une adresse peut contenir plusieurs logements, chacun avec son statut et ses repasses, et un repère facultatif (ex. « 1er étage gauche »).
 - **Carte des 5 villages incluse dans l'app** (rues, bâtiments, rivières) : chaque adresse est une pastille colorée, découpée en parts pour les immeubles. Filtres par statut, commune et secteur, vue satellite IGN, position GPS. Toucher une rue ouvre sa fiche.
 - **Mode tournée** : grande plaque de numéro, quatre boutons géants, **un seul geste par porte**, puis le foyer suivant s'affiche tout seul (un côté de la rue puis l'autre, logements compris). Mode « autour de moi » au GPS. L'écran reste allumé.
